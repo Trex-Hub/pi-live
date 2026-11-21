@@ -185,7 +185,7 @@ When the parker calls `ticket.close(outcome)` (keyboard, timeout, abort, error):
 - **Path length.** macOS limits Unix socket paths to 104 bytes, Linux to 108. If the full path would exceed 100 bytes, use `<os.tmpdir()>/pi-live-<uid>/<first 16 hex chars of sha256(sessionId)>.sock` instead, with the directory at `0700`. Either way, `pi-live:ready` and `pi-live:who` report the real path.
 - **Windows.** Use the named pipe `\\.\pipe\pi-live-<sessionId>`. `node:net` handles both. There are no file permissions on pipes, so this is documented as "same machine; v1 tested on macOS/Linux only".
 
-A sidecar file `<sessionId>.json` sits next to each socket so a client can list sessions without connecting to each one:
+A sidecar file `<sessionId>.json` always sits in the live dir, even when the socket falls back to tmpdir. That way a client can list sessions without connecting to each one, and `socketPath` points at the real socket:
 
 ```json
 { "protocol": 1, "sessionId": "…", "sessionFile": "…", "cwd": "…", "pid": 1234, "startedAt": "…", "socketPath": "…" }
@@ -195,14 +195,14 @@ It's written atomically (temp file, then rename), with `0600`, and removed with 
 
 ### Stale sockets
 
-When pi-live starts, it scans `live/` for `*.sock`. For each one, it tries to connect for 200 ms. On `ECONNREFUSED`/`ENOENT`, or if the sidecar's `pid` is no longer alive (`process.kill(pid, 0)` throws `ESRCH`), it unlinks the socket and the sidecar. If its own target path already exists and is stale, it unlinks it before `listen`. If the path is live, which means another pi already holds the same session id (two pis resuming one session), it doesn't steal it. It logs a warning and stays off for this session.
+When pi-live starts, it scans `live/` for `*.sock` and `*.json` (following a sidecar's `socketPath` to a fallback socket). For each one, it tries to connect for 200 ms. On `ECONNREFUSED`/`ENOENT`, or if the sidecar's `pid` is no longer alive (`process.kill(pid, 0)` throws `ESRCH`), it unlinks the socket and the sidecar. If its own target path already exists and is stale, it unlinks it before `listen`. If the path is live, which means another pi already holds the same session id (two pis resuming one session), it doesn't steal it. It logs a warning and stays off for this session.
 
 ### Lifecycle
 
 pi calls `session_shutdown` for the old session, rebinds extensions, then calls `session_start` for the new one on startup, `/new`, resume, fork and `/reload` (docs/extensions.md). So: **one socket per session**.
 
 - `session_start`: if enabled and this copy won the guard, read `ctx.sessionManager.getSessionId()`, `getSessionFile()` and `getCwd()`, open the socket, write the sidecar, emit `pi-live:ready`.
-- `session_shutdown` (any reason): close every open item with `{ by: "shutdown" }`, send `goodbye` to clients, close the server, unlink the socket and sidecar, clear the registry, emit `pi-live:closed`, and release the guard.
+- `session_shutdown` (any reason): close every open item with `{ by: "shutdown" }`, send `goodbye` to clients, close the server, unlink the socket and sidecar (only if they're still ours, checked by inode; a `process.on("exit")` backstop does the same), clear the registry, emit `pi-live:closed`, and release the guard.
 - Process exit without shutdown (crash, `kill -9`): files are left behind and cleaned up as stale by the next pi-live start. Clients see the connection drop.
 
 Modes: run when `ctx.mode` is `"tui"` or `"rpc"`. Skip `"print"`/`"json"`: they're one-shot and have no human to wait on.
@@ -283,7 +283,8 @@ pi-live keeps the last 256 closed ids per session (in insertion order, oldest dr
 ### Backpressure and misbehaving clients
 
 - If `socket.write` returns `false` and more than 4 MiB is buffered for a client, drop that client. It can reconnect and get a fresh `welcome`.
-- At most 32 concurrent clients. Extra connections get `error` and are closed.
+- At most 32 concurrent connections, counting ones that haven't said hello yet. Extra connections get `error` and are closed.
+- A connection that doesn't send `hello` within 5 s gets `error "expected hello"` and is closed.
 - No idle timeout. Clients may `ping`.
 
 ## 6. Settings
