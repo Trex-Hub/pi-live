@@ -4,7 +4,7 @@ pi-live isn't tied to one extension. Any extension or tool that pauses for a hum
 
 ## Approving dangerous commands from your phone
 
-A hypothetical `pi-guard` extension stops the agent before `rm -rf`, `git push --force` and similar commands. Without pi-live, you have to be at the terminal to press **y**. With pi-live, your phone buzzes while you're away and you tap Allow.
+A hypothetical `pi-guard` extension stops the agent before `rm -rf`, `git push --force` and similar commands. Without pi-live, you have to be at the terminal to press **y**. With pi-live and a bridge that connects your phone to the socket and adds its own authentication, your phone buzzes while you're away and you tap Allow.
 
 ### The extension
 
