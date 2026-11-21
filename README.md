@@ -1,13 +1,20 @@
 # pi-live
 
-Answer a waiting pi session from outside the terminal, through a local socket.
+Answer anything your pi session is waiting on from outside the terminal: a question, an approval, a plan review.
 
-When an extension needs something from you, such as an answer to a question, it waits at a prompt in the terminal. pi-live gives each pi session a Unix socket that lists everything the session is waiting on. Any local program can connect, show those prompts and send answers back. The terminal prompt stays open the whole time, and the first valid answer wins, from the keyboard or a client.
+When pi stops to wait for you, you normally have to be at that terminal. pi-live gives each pi session a local socket that lists everything the session is waiting on. Any extension or tool that pauses for a human can park that wait with pi-live. The terminal prompt still shows, and any connected client (a phone, a herdr-web tab, a desktop notifier) can show the same wait and answer it. The first valid answer wins.
 
-pi-live has no UI of its own. Extensions offer their prompts to it over pi's event bus, and clients connect to the socket. Without an extension that uses it, pi-live does nothing.
+pi-live never needs to understand the prompt. It relays three things:
+
+- **`kind`:** a label the parker chooses, so clients know how to render the prompt.
+- **`view`:** JSON describing the prompt.
+- **`answer`:** whatever the client sends back, which the parker validates.
+
+pi-live has no UI of its own, and it does nothing until an extension parks a wait with it.
 
 ## Contents
 
+- [Example](#example)
 - [How it works](#how-it-works)
 - [Security](#security)
 - [Install](#install)
@@ -17,6 +24,12 @@ pi-live has no UI of its own. Extensions offer their prompts to it over pi's eve
 - [For client authors](#for-client-authors)
 - [Development](#development)
 - [License](#license)
+
+## Example
+
+A hypothetical `pi-guard` extension stops the agent before `rm -rf`, `git push --force` and similar commands. Without pi-live, you have to be at the terminal to press **y**. With pi-live, your phone buzzes while you're away and you tap Allow.
+
+The full code, what a client sees and more ideas are in [docs/examples.md](docs/examples.md).
 
 ## How it works
 
