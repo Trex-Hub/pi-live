@@ -1,67 +1,169 @@
 # pi-live
 
-A Pi extension that opens a per-session local socket so programs outside pi can see and answer what the session is waiting on, such as an `ask_user` question. The first client is herdr-web.
+Answer a waiting pi session from outside the terminal, through a local socket.
 
-pi-live owns no UI. Extensions *park* a waiting item on pi's event bus. pi-live shows it to socket clients and passes a client's answer back to the parker. The terminal prompt stays open the whole time, and whichever answer comes first, keyboard or client, wins.
+When an extension needs something from you, such as an answer to a question, it waits at a prompt in the terminal. pi-live gives each pi session a Unix socket that lists everything the session is waiting on. Any local program can connect, show those prompts and send answers back. The terminal prompt stays open the whole time, and the first valid answer wins, from the keyboard or a client.
 
-Design and contracts: [docs/architecture.md](docs/architecture.md).
+pi-live has no UI of its own. Extensions offer their prompts to it over pi's event bus, and clients connect to the socket. Without an extension that uses it, pi-live does nothing.
+
+## Contents
+
+- [How it works](#how-it-works)
+- [Security](#security)
+- [Install](#install)
+- [Try it](#try-it)
+- [Configuration](#configuration)
+- [For extension authors](#for-extension-authors)
+- [For client authors](#for-client-authors)
+- [Development](#development)
+- [License](#license)
+
+## How it works
+
+```
+ pi session                                    outside pi
+┌─────────────────────────────────────┐
+│ extension ──park──▶ pi-live ◀───────┼──── socket ────▶ client (CLI, web app, …)
+│     ▲                  │            │
+│     └──── answer ──────┘            │
+│ terminal prompt (still answerable)  │
+└─────────────────────────────────────┘
+```
+
+1. An extension opens a prompt in the terminal and *parks* it with pi-live: an id, a title and a JSON view of the prompt.
+2. pi-live tells every connected client that a new item is open.
+3. A client sends an answer. pi-live passes it to the extension, which checks it as if it came from the keyboard. An invalid answer is rejected and the prompt stays open.
+4. When the prompt ends, however it ends, pi-live tells every client the item is closed and why: answered by a client, answered at the keyboard, timed out, aborted or session ended.
+
+A client that connects later gets the current list of open items first, then changes as they happen.
 
 ## Security
 
-**With pi-live loaded, any program running as you can see and answer what your pi session is waiting on.**
+**With pi-live loaded, any program running as your user can see and answer what your pi sessions are waiting on.**
 
-The socket is a Unix socket under a `0700` directory with mode `0600`, so it's reachable only by your user on that machine. That's the same trust boundary as your terminal and your `~/.pi` config. pi-live never listens on TCP. Remote access is the client's job, and the client must add its own authentication. On Windows a named pipe is used (v1 is tested on macOS and Linux only).
+- The socket is a Unix socket with mode `0600` in a directory with mode `0700`. Only your user on that machine can connect, the same boundary that protects your terminal and your pi configuration.
+- pi-live never listens on a network port. To answer from another machine, use a client that provides its own authentication and transport.
+- Clients see whatever an extension puts in a prompt's view, for example a question, its context and its options.
+- On Windows, pi-live uses a named pipe. Windows support is untested.
 
 ## Install
 
-```bash
-pi install npm:@dev8-npm/pi-live
-```
-
-Or try it from a checkout without installing:
+pi-live requires pi 0.74 or later.
 
 ```bash
-PI_LIVE_DIR=/tmp/pi-live-dev pi -e ./pi-live
+pi install git:github.com/Trex-Hub/pi-live
 ```
 
-It runs in `tui` and `rpc` modes and does nothing in `print`/`json` mode. If several packages bundle pi-live, only the first loaded copy is active.
+To try it for one run without installing:
 
-## Settings
+```bash
+pi -e git:github.com/Trex-Hub/pi-live
+```
 
-Env first, then `<agentDir>/pi-live.json` (`agentDir` is `$PI_CODING_AGENT_DIR` or `~/.pi/agent`), re-read on every session start.
+pi-live runs in pi's interactive and RPC modes. It does nothing in print and JSON modes, where no one is waiting at a prompt.
 
-| Setting | Env | Default | Meaning |
+If several packages bundle pi-live, only the first copy loaded is active.
+
+## Try it
+
+Clone this repository to get the command-line client, then start pi with pi-live and an extension that parks prompts:
+
+```bash
+git clone https://github.com/Trex-Hub/pi-live && cd pi-live && bun install
+```
+
+List the sessions that have a socket:
+
+```bash
+$ bun bin/pi-live.ts ls
+01a1feea-1468-750a-96d6-bf2777e60575	alive	pid 74194	/home/me/project
+```
+
+Watch one session. The first line lists the open items, and each later line is a change:
+
+```bash
+$ bun bin/pi-live.ts watch 01a1feea-1468-750a-96d6-bf2777e60575
+{"type":"welcome","protocol":1,"session":{...},"connId":"c1","items":[]}
+{"type":"item_opened","item":{"id":"call_1","owner":"ask_user","kind":"ask_user.question","title":"Which color?","view":{...},"openedAt":1795278085572}}
+```
+
+Answer an item. The command exits with status 0 only if the answer was delivered:
+
+```bash
+$ bun bin/pi-live.ts answer 01a1feea-1468-750a-96d6-bf2777e60575 call_1 '{"kind":"selection","selections":["Blue"]}'
+{"type":"answer_result","reqId":"cli","id":"call_1","status":"delivered"}
+```
+
+The shape of the answer is set by the extension that parked the item.
+
+## Configuration
+
+pi-live reads environment variables first, then `pi-live.json` in pi's agent directory (`$PI_CODING_AGENT_DIR`, or `~/.pi/agent`). Settings are read again at every session start.
+
+| Setting | Environment variable | Default | Effect |
 |---|---|---|---|
-| `enabled` | `PI_LIVE_ENABLED` (`0`/`false` = off) | `true` | Off: no socket, and parkers fall back to keyboard only. |
-| `dir` | `PI_LIVE_DIR` | `<agentDir>/live` | Socket and sidecar directory. |
+| `enabled` | `PI_LIVE_ENABLED` (`0` or `false` turns it off) | `true` | When off, there's no socket and prompts are answered only at the keyboard. |
+| `dir` | `PI_LIVE_DIR` | `<agent dir>/live` | Directory for sockets and session files. |
 
 ```json
-{ "enabled": true }
+{ "enabled": false }
 ```
 
-## Files
+If `pi-live.json` isn't valid JSON, pi-live stays off for that session and shows a warning.
 
-Each session gets `<dir>/<sessionId>.sock` and a sidecar `<dir>/<sessionId>.json` (`sessionId`, `sessionFile`, `cwd`, `pid`, `startedAt`, `socketPath`). If the socket path would exceed 100 bytes, the socket goes to `<tmpdir>/pi-live-<uid>/<hash>.sock`, and the sidecar's `socketPath` points there. Both files are removed on session shutdown or process exit, and leftovers from a crash are removed by the next pi-live start.
+## For extension authors
 
-## For parkers (bus API)
+Park a prompt by emitting `pi-live:park` on `pi.events`. If pi-live is running, it calls `accept` synchronously, before `emit` returns. If `accept` wasn't called, there is no socket, so keep your keyboard-only path:
 
-Emit `pi-live:park` with a `ParkRequest` (see `src/protocol.ts`). If pi-live is listening, it calls `accept(ticket)` synchronously during the emit. If `accept` wasn't called, there's no door, so keep the keyboard-only path. Call `ticket.close(outcome)` exactly once when your wait ends. `answer(answer, from)` must be synchronous and return `{ status: "delivered" }` or `{ status: "invalid", reason }`.
+```typescript
+let ticket: { close(outcome: { by: string }): void } | undefined;
 
-Other channels: `pi-live:ready` and `pi-live:closed` (session socket up/down), and `pi-live:who` (`reply(info)` is called synchronously with `{ protocol, sessionId, socketPath }` when a socket is open).
+pi.events.emit("pi-live:park", {
+	protocol: 1,
+	id: toolCallId,               // unique in this session
+	owner: "my-extension",
+	kind: "my-extension.confirm", // tells clients how to read `view`
+	title: "Deploy to production?",
+	view: { question: "Deploy to production?", choices: ["yes", "no"] },
+	accept(t) {
+		ticket = t;
+	},
+	answer(raw, from) {
+		// Called with a client's answer. Must be synchronous.
+		if (raw !== "yes" && raw !== "no") return { status: "invalid", reason: "expected yes or no" };
+		resolvePrompt(raw); // finish your prompt as if the user had typed it
+		return { status: "delivered" };
+	},
+});
 
-## For clients (wire protocol)
-
-NDJSON over the socket. Send `{"type":"hello","protocol":1,"client":{"name":"…"}}` first, within 5 seconds. You get a `welcome` with the session and all open items, then `item_opened`/`item_closed` as they happen. Answer with `{"type":"answer","reqId":"r1","id":"<item id>","answer":…}` and you get an `answer_result` (`delivered`, `invalid`, `closed` or `not_found`). Full spec: docs/architecture.md §5. Types: `src/protocol.ts` (no imports, so you can copy it).
-
-## Dev CLI
-
-For manual testing. It uses the same settings, so set `PI_LIVE_DIR` as you did for pi.
-
-```bash
-bun bin/pi-live.ts ls                                # sessions: id, alive/dead, pid, cwd
-bun bin/pi-live.ts watch [sessionId|path]            # print welcome and every message
-bun bin/pi-live.ts answer <sessionId|path> <id> '<json>'  # print answer_result; exit 0 if delivered
+// When your prompt ends for any other reason:
+ticket?.close({ by: "keyboard" }); // or "timeout", "abort", "error"
 ```
+
+- Call `ticket.close` once when the prompt ends. Extra calls are ignored.
+- After a client's answer is delivered, pi-live closes the item itself.
+- Once your prompt has ended, return `invalid` from `answer`, so a late answer can't resolve it twice.
+
+`pi-live:ready` and `pi-live:closed` report when a session's socket opens and closes. Emit `pi-live:who` with a `reply` function to get the current socket path.
+
+The full API is in [docs/protocol.md](docs/protocol.md), and the types are in [src/protocol.ts](src/protocol.ts).
+
+## For client authors
+
+The socket speaks newline-delimited JSON. Send `hello` first, then read `welcome` with the open items, followed by `item_opened` and `item_closed` as they happen:
+
+```jsonc
+→ {"type":"hello","protocol":1,"client":{"name":"my-client"}}
+← {"type":"welcome","protocol":1,"session":{"id":"…","cwd":"…","pid":1234},"connId":"c1","items":[]}
+← {"type":"item_opened","item":{"id":"call_1","kind":"…","title":"…","view":{…},"openedAt":1795278085572}}
+→ {"type":"answer","reqId":"r1","id":"call_1","answer":{…}}
+← {"type":"answer_result","reqId":"r1","id":"call_1","status":"delivered"}
+← {"type":"item_closed","id":"call_1","outcome":{"by":"client","client":{"connId":"c1","name":"my-client"}}}
+```
+
+To find sessions, read the `<session id>.json` files in the socket directory. Each one gives the socket path, process id and working directory of a session.
+
+The full wire protocol is in [docs/protocol.md](docs/protocol.md). [src/protocol.ts](src/protocol.ts) has no imports, so you can copy it into a client for the types.
 
 ## Development
 
@@ -71,6 +173,12 @@ bun test
 bun run typecheck
 ```
 
+To load your checkout in pi without touching your real socket directory:
+
+```bash
+PI_LIVE_DIR=/tmp/pi-live-dev pi -e .
+```
+
 ## License
 
-MIT
+[MIT](LICENSE)

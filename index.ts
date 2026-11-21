@@ -1,5 +1,5 @@
 // pi-live: a per-session local socket that lets outside clients see and answer
-// what this pi session is waiting on. See docs/architecture.md.
+// what this pi session is waiting on. See docs/protocol.md.
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { dirname } from "node:path";
