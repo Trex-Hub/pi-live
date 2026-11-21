@@ -1,0 +1,43 @@
+{
+  "name": "@dev8-npm/pi-live",
+  "version": "0.1.0",
+  "description": "Local socket door for a running pi session: lists what the session is waiting on and takes answers from outside",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "extension"
+  ],
+  "author": "Devendra Mishra <devendra@zosma.ai>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "files": [
+    "index.ts",
+    "src",
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "packageManager": "bun@1.3.14",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.5.2",
+    "@types/bun": "1.3.14",
+    "@types/node": "22.19.0",
+    "typescript": "5.9.3"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.74.0"
+  }
+}
