@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -56,6 +56,33 @@ export function removeFile(path: string): void {
 		unlinkSync(path);
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+	}
+}
+
+/** Identifies one file on disk, so we only unlink a path that is still ours. */
+export interface FileId {
+	dev: number;
+	ino: number;
+}
+
+export function fileId(path: string): FileId | undefined {
+	try {
+		const { dev, ino } = statSync(path);
+		return { dev, ino };
+	} catch {
+		return undefined;
+	}
+}
+
+/** Unlink `path` only if it is still the file identified by `id`. Never throws. */
+export function removeIfOurs(path: string, id: FileId | undefined): void {
+	if (!id) return;
+	const now = fileId(path);
+	if (!now || now.dev !== id.dev || now.ino !== id.ino) return;
+	try {
+		unlinkSync(path);
+	} catch {
+		// Gone or not removable; nothing to do.
 	}
 }
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { statSync } from "node:fs";
+import { existsSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { ParkRequest, ParkTicket, SessionInfo } from "../src/protocol";
 import { Registry } from "../src/registry";
@@ -67,6 +67,23 @@ describe("socket", () => {
 	test("close removes the socket file", () => {
 		server.close();
 		expect(() => statSync(socketPath)).toThrow();
+	});
+
+	test("close leaves a socket that someone else re-created at the same path", async () => {
+		unlinkSync(socketPath);
+		const other = await LiveServer.listen({ socketPath, session, handler: registry });
+		server.close();
+		expect(statSync(socketPath).isSocket()).toBe(true);
+		const { client } = await hello();
+		expect(client.messages[0]).toMatchObject({ type: "welcome" });
+		other.close();
+		expect(existsSync(socketPath)).toBe(false);
+	});
+
+	test("listen refuses an existing path and leaves no temp files", async () => {
+		await expect(LiveServer.listen({ socketPath, session, handler: registry })).rejects.toMatchObject({ code: "EEXIST" });
+		await tick();
+		expect(readdirSync(tmp.dir)).toEqual(["s1.sock"]);
 	});
 });
 
@@ -207,6 +224,23 @@ describe("wire robustness", () => {
 		c.send({ type: "hello", protocol: 2, client: { name: "x" } });
 		expect(await c.next()).toEqual({ type: "error", message: "unsupported protocol" });
 		await c.closed;
+	});
+
+	test("no hello within the timeout → error and close; hello'd clients stay", async () => {
+		const path = join(tmp.dir, "t.sock");
+		const quick = await LiveServer.listen({ socketPath: path, session, handler: registry, helloTimeoutMs: 50 });
+		try {
+			const idle = await openClient(path);
+			const { client: good } = await helloClient(path);
+			clients.push(idle, good);
+			expect(await idle.next()).toEqual({ type: "error", message: "expected hello" });
+			await idle.closed;
+			await new Promise((r) => setTimeout(r, 80));
+			good.send({ type: "ping", reqId: "p" });
+			expect(await good.next()).toEqual({ type: "pong", reqId: "p" });
+		} finally {
+			quick.close();
+		}
 	});
 
 	test("hello without a client name → error and close", async () => {

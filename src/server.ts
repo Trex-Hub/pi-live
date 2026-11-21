@@ -1,11 +1,15 @@
-import { chmodSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { chmodSync, linkSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { removeFile } from "./paths";
+import { dirname, join } from "node:path";
+import { type FileId, fileId, removeIfOurs } from "./paths";
 import { PROTOCOL_VERSION, type AnswerResult, type ClientInfo, type Item, type ServerMessage, type SessionInfo } from "./protocol";
 
 export const MAX_LINE_BYTES = 1024 * 1024;
 export const MAX_CLIENTS = 32;
 export const MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
+/** A connection that hasn't said hello by then is closed, so idle connections can't hold slots. */
+export const HELLO_TIMEOUT_MS = 5000;
 /** After `goodbye`, a client that doesn't let the connection end is destroyed after this long. */
 const CLOSE_GRACE_MS = 1000;
 
@@ -20,6 +24,8 @@ export interface ListenOptions {
 	session: SessionInfo;
 	handler: ServerHandler;
 	log?: (message: string) => void;
+	/** Defaults to HELLO_TIMEOUT_MS. For tests. */
+	helloTimeoutMs?: number;
 }
 
 interface Client {
@@ -29,6 +35,7 @@ interface Client {
 	pending: Buffer[];
 	pendingBytes: number;
 	closing: boolean;
+	helloTimer?: ReturnType<typeof setTimeout>;
 }
 
 /** The session's NDJSON socket server. */
@@ -40,25 +47,47 @@ export class LiveServer {
 	private constructor(
 		private readonly server: Server,
 		readonly socketPath: string,
+		/** The socket file as created by listen; undefined on Windows. */
+		readonly socketId: FileId | undefined,
 		private readonly session: SessionInfo,
 		private readonly handler: ServerHandler,
 		private readonly log: (message: string) => void,
+		private readonly helloTimeoutMs: number,
 	) {
 		server.on("connection", (socket) => this.guard(() => this.onConnection(socket)));
 		server.on("error", (error) => this.log(`socket server error: ${error.message}`));
 	}
 
 	/** Listen on `socketPath` and chmod it 0600. The path must not exist. */
+	/**
+	 * Listen on `socketPath` (0600). Fails with EEXIST/EADDRINUSE if the path exists.
+	 *
+	 * On Unix, Node/libuv unlinks the listen path by name when the server closes,
+	 * which could delete a newer pi's socket at the same path. So we listen on a
+	 * unique temp name in the same dir, chmod it, hard-link it to `socketPath`
+	 * (EEXIST if taken, never replaces) and unlink the temp name. Only `close()`
+	 * removes `socketPath`, and only while it is still ours.
+	 */
 	static listen(options: ListenOptions): Promise<LiveServer> {
 		const log = options.log ?? (() => {});
+		const unix = process.platform !== "win32";
+		const listenPath = unix
+			? join(dirname(options.socketPath), `.${randomBytes(4).toString("hex")}`)
+			: options.socketPath;
 		return new Promise((resolve, reject) => {
 			const server = createServer();
 			const onError = (error: Error) => reject(error);
 			server.once("error", onError);
-			server.listen(options.socketPath, () => {
+			server.listen(listenPath, () => {
 				server.off("error", onError);
+				let socketId: FileId | undefined;
 				try {
-					if (process.platform !== "win32") chmodSync(options.socketPath, 0o600);
+					if (unix) {
+						chmodSync(listenPath, 0o600);
+						linkSync(listenPath, options.socketPath);
+						unlinkSync(listenPath);
+						socketId = fileId(options.socketPath);
+					}
 				} catch (error) {
 					server.close();
 					reject(error);
@@ -66,7 +95,17 @@ export class LiveServer {
 				}
 				// Don't keep pi's process alive just for the door.
 				server.unref();
-				resolve(new LiveServer(server, options.socketPath, options.session, options.handler, log));
+				resolve(
+					new LiveServer(
+						server,
+						options.socketPath,
+						socketId,
+						options.session,
+						options.handler,
+						log,
+						options.helloTimeoutMs ?? HELLO_TIMEOUT_MS,
+					),
+				);
 			});
 		});
 	}
@@ -84,7 +123,7 @@ export class LiveServer {
 		}
 	}
 
-	/** Send `goodbye`, end every connection, stop listening and unlink the socket. Doesn't wait for clients. */
+	/** Send `goodbye`, end every connection, stop listening and unlink the socket if it's still ours. Doesn't wait for clients. */
 	close(): void {
 		if (this.closed) return;
 		this.closed = true;
@@ -93,13 +132,7 @@ export class LiveServer {
 			this.end(client);
 		}
 		this.server.close();
-		if (process.platform !== "win32") {
-			try {
-				removeFile(this.socketPath);
-			} catch (error) {
-				this.log(`could not remove ${this.socketPath}: ${(error as Error).message}`);
-			}
-		}
+		removeIfOurs(this.socketPath, this.socketId);
 	}
 
 	private onConnection(socket: Socket): void {
@@ -108,12 +141,19 @@ export class LiveServer {
 		socket.on("error", () => {
 			// Disconnects (EPIPE, ECONNRESET) are normal; "close" follows.
 		});
-		socket.on("close", () => this.clients.delete(client));
+		socket.on("close", () => {
+			clearTimeout(client.helloTimer);
+			this.clients.delete(client);
+		});
 		if (this.closed || this.clients.size >= MAX_CLIENTS) {
 			this.reject(client, "too many clients");
 			return;
 		}
 		this.clients.add(client);
+		client.helloTimer = setTimeout(() => {
+			if (!client.info) this.reject(client, "expected hello");
+		}, this.helloTimeoutMs);
+		client.helloTimer.unref();
 		socket.on("data", (chunk: Buffer) => this.guard(() => this.onData(client, chunk)));
 	}
 
@@ -158,6 +198,7 @@ export class LiveServer {
 			if (msg.protocol !== PROTOCOL_VERSION) return this.reject(client, "unsupported protocol");
 			const name = (msg.client as Record<string, unknown> | undefined)?.name;
 			if (typeof name !== "string") return this.reject(client, "invalid hello");
+			clearTimeout(client.helloTimer);
 			client.info = { connId: `c${this.nextConnId++}`, name };
 			// Snapshot and write in the same tick, so no change falls in between.
 			this.send(client, {
