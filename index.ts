@@ -1,0 +1,196 @@
+// pi-live: a per-session local socket that lets outside clients see and answer
+// what this pi session is waiting on. See docs/architecture.md.
+
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { dirname } from "node:path";
+import {
+	cleanStale,
+	ensurePrivateDir,
+	type FileId,
+	fileId,
+	isStale,
+	readSidecar,
+	removeFile,
+	removeIfOurs,
+	sidecarPathFor,
+	socketPathFor,
+	writeSidecar,
+} from "./src/paths";
+import { CHANNEL_CLOSED, CHANNEL_PARK, CHANNEL_READY, CHANNEL_WHO, type ReadyInfo } from "./src/protocol";
+import { Registry } from "./src/registry";
+import { LiveServer } from "./src/server";
+import { loadSettings } from "./src/settings";
+
+/** Kept in sync with package.json (tested). */
+export const PKG_VERSION = "0.1.0";
+
+/** Process-wide single-instance key, shared by every copy of pi-live. */
+export const GUARD_KEY = Symbol.for("pi-live.host.v1");
+
+interface Running {
+	ready: ReadyInfo;
+	server: LiveServer;
+	registry: Registry;
+	sidecarPath: string;
+	sidecarId: FileId | undefined;
+	unsubscribe: Array<() => void>;
+	onExit: () => void;
+}
+
+export default function piLive(pi: ExtensionAPI): void {
+	const g = globalThis as Record<symbol, unknown>;
+	if (g[GUARD_KEY]) return; // another copy owns the door; this copy registers nothing
+	const claim = { version: PKG_VERSION };
+	g[GUARD_KEY] = claim;
+
+	let ctx: ExtensionContext | undefined;
+	let running: Running | undefined;
+	let starting: Promise<void> | undefined;
+
+	const log = (message: string) => {
+		const text = `[pi-live] ${message}`;
+		try {
+			if (ctx?.hasUI && ctx.mode === "tui") {
+				ctx.ui.notify(text, "warning");
+				return;
+			}
+		} catch {
+			// Stale ctx; fall through.
+		}
+		console.error(text);
+	};
+
+	async function start(c: ExtensionContext): Promise<void> {
+		if (c.mode !== "tui" && c.mode !== "rpc") return;
+
+		let settings: ReturnType<typeof loadSettings>;
+		try {
+			settings = loadSettings();
+		} catch (error) {
+			log(`${(error as Error).message}; off for this session`);
+			return;
+		}
+		if (!settings.enabled) return;
+
+		const sessionId = c.sessionManager.getSessionId();
+		const sessionFile = c.sessionManager.getSessionFile();
+		const cwd = c.sessionManager.getCwd();
+		const { dir } = settings;
+		const socketPath = socketPathFor(dir, sessionId);
+		const sidecarPath = sidecarPathFor(dir, sessionId);
+
+		ensurePrivateDir(dir);
+		if (process.platform !== "win32" && dirname(socketPath) !== dir) ensurePrivateDir(dirname(socketPath));
+		await cleanStale(dir);
+
+		// Our own path may still exist (e.g. a tmpdir fallback without a sidecar).
+		if (process.platform !== "win32" && fileId(socketPath)) {
+			if (!(await isStale(socketPath, readSidecar(sidecarPath)?.pid))) {
+				log(`session ${sessionId} is already served by another pi at ${socketPath}; off for this session`);
+				return;
+			}
+			removeFile(socketPath);
+		}
+
+		let server: LiveServer | undefined;
+		const registry = new Registry(
+			{
+				opened: (item) => server?.broadcast({ type: "item_opened", item }),
+				closed: (id, outcome) => server?.broadcast({ type: "item_closed", id, outcome }),
+			},
+			log,
+		);
+		try {
+			server = await LiveServer.listen({
+				socketPath,
+				session: { id: sessionId, file: sessionFile, cwd, pid: process.pid },
+				handler: registry,
+				log,
+			});
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code;
+			if (code === "EEXIST" || code === "EADDRINUSE") {
+				log(`session ${sessionId} is already served by another pi at ${socketPath}; off for this session`);
+			} else {
+				log(`could not listen on ${socketPath}: ${(error as Error).message}; off for this session`);
+			}
+			return;
+		}
+
+		let sidecarId: FileId | undefined;
+		try {
+			writeSidecar(sidecarPath, {
+				protocol: 1,
+				sessionId,
+				sessionFile,
+				cwd,
+				pid: process.pid,
+				startedAt: new Date().toISOString(),
+				socketPath,
+			});
+			sidecarId = fileId(sidecarPath);
+		} catch (error) {
+			log(`could not write ${sidecarPath}: ${(error as Error).message}`);
+		}
+
+		const ready: ReadyInfo = { protocol: 1, sessionId, socketPath };
+		const live = server;
+		// Backstop for an exit without session_shutdown. A hard kill is left to stale cleanup.
+		const onExit = () => {
+			removeIfOurs(socketPath, live.socketId);
+			removeIfOurs(sidecarPath, sidecarId);
+		};
+		process.on("exit", onExit);
+
+		const unsubscribe = [
+			pi.events.on(CHANNEL_PARK, (data) => {
+				try {
+					registry.park(data);
+				} catch (error) {
+					log(`park failed: ${(error as Error).message}`);
+				}
+			}),
+			pi.events.on(CHANNEL_WHO, (data) => {
+				const reply = (data as { reply?: unknown } | null)?.reply;
+				if (typeof reply !== "function") return;
+				try {
+					reply(ready);
+				} catch (error) {
+					log(`pi-live:who reply threw: ${(error as Error).message}`);
+				}
+			}),
+		];
+		running = { ready, server, registry, sidecarPath, sidecarId, unsubscribe, onExit };
+		pi.events.emit(CHANNEL_READY, ready);
+	}
+
+	function stop(): void {
+		const r = running;
+		if (!r) return;
+		running = undefined;
+		for (const off of r.unsubscribe) off();
+		r.registry.closeAll({ by: "shutdown" });
+		r.server.close();
+		removeIfOurs(r.sidecarPath, r.sidecarId);
+		process.off("exit", r.onExit);
+		pi.events.emit(CHANNEL_CLOSED, { sessionId: r.ready.sessionId });
+	}
+
+	pi.on("session_start", async (_event, c) => {
+		ctx = c;
+		starting = start(c).catch((error) => log(`could not start: ${(error as Error).message}`));
+		await starting;
+	});
+
+	pi.on("session_shutdown", async () => {
+		await starting;
+		starting = undefined;
+		try {
+			stop();
+		} catch (error) {
+			log(`shutdown failed: ${(error as Error).message}`);
+		}
+		ctx = undefined;
+		if (g[GUARD_KEY] === claim) delete g[GUARD_KEY];
+	});
+}

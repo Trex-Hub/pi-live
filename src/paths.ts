@@ -140,20 +140,22 @@ export async function cleanStale(dir: string): Promise<string[]> {
 		else if (name.endsWith(".json")) ids.add(name.slice(0, -".json".length));
 	}
 	const removed: string[] = [];
-	for (const id of ids) {
-		const sidecarPath = sidecarPathFor(dir, id);
-		const sidecar = readSidecar(sidecarPath);
-		const localSocket = join(dir, `${id}.sock`);
-		const socketPath = typeof sidecar?.socketPath === "string" ? sidecar.socketPath : localSocket;
-		if (!(await isStale(socketPath, typeof sidecar?.pid === "number" ? sidecar.pid : undefined))) continue;
-		try {
-			removeFile(localSocket);
-			if (socketPath !== localSocket && socketPath.endsWith(".sock")) removeFile(socketPath);
-			removeFile(sidecarPath);
-			removed.push(id);
-		} catch {
-			// Not ours to remove (permissions); leave it.
-		}
-	}
+	await Promise.all(
+		[...ids].map(async (id) => {
+			const sidecarPath = sidecarPathFor(dir, id);
+			const sidecar = readSidecar(sidecarPath);
+			const localSocket = join(dir, `${id}.sock`);
+			const socketPath = typeof sidecar?.socketPath === "string" ? sidecar.socketPath : localSocket;
+			if (!(await isStale(socketPath, typeof sidecar?.pid === "number" ? sidecar.pid : undefined))) return;
+			try {
+				removeFile(localSocket);
+				if (socketPath !== localSocket && socketPath.endsWith(".sock")) removeFile(socketPath);
+				removeFile(sidecarPath);
+				removed.push(id);
+			} catch {
+				// Not ours to remove (permissions); leave it.
+			}
+		}),
+	);
 	return removed;
 }
