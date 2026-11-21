@@ -9,7 +9,7 @@
     "pi-coding-agent",
     "extension"
   ],
-  "author": "Devendra Mishra <devendra@zosma.ai>",
+  "author": "Devendra Mishra <devendrapkmishra@gmail.com>",
   "license": "MIT",
   "publishConfig": {
     "access": "public"
