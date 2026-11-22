@@ -10,7 +10,9 @@ pi-live never needs to understand the prompt. It relays three things:
 - **`view`:** JSON describing the prompt.
 - **`answer`:** whatever the client sends back, which the parker validates.
 
-pi-live has no UI of its own, and it does nothing until an extension parks a wait with it.
+pi-live has no UI of its own.
+
+Clients can also follow the session's chat as it happens (the reply streaming, running tools, the model and context use) and, with control on, act on pi: send a prompt, steer, stop a run, switch the model or effort, rename or compact the session.
 
 ## Contents
 
@@ -52,7 +54,9 @@ A client that connects later gets the current list of open items first, then cha
 
 ## Security
 
-**With pi-live loaded, any program running as your user can see and answer what your pi sessions are waiting on.**
+**With pi-live loaded, any program running as your user can see and answer what your pi sessions are waiting on, and follow their chat.**
+
+**With control on (the default), any program running as your user can also send messages to the agent, which can run commands.** That's the same reach as typing into your terminal. To turn control off, set `PI_LIVE_CONTROL=0` or put `{ "control": false }` in `pi-live.json` (see [Configuration](#configuration)). Clients can still watch and answer waits.
 
 - The socket is a Unix socket with mode `0600` in a directory with mode `0700`. Only your user on that machine can connect, the same boundary that protects your terminal and your pi configuration.
 - pi-live never listens on a network port. To answer from another machine, use a client that provides its own authentication and transport.
@@ -117,12 +121,17 @@ pi-live reads environment variables first, then `pi-live.json` in pi's agent dir
 |---|---|---|---|
 | `enabled` | `PI_LIVE_ENABLED` (`0` or `false` turns it off) | `true` | When off, there's no socket and prompts are answered only at the keyboard. |
 | `dir` | `PI_LIVE_DIR` | `<agent dir>/live` | Directory for sockets and session files. |
+| `control` | `PI_LIVE_CONTROL` (`0`/`false`/`off` or `1`/`true`/`on`) | `true` | When off, clients can watch and answer, but every action is refused. |
 
 ```json
-{ "enabled": false }
+{ "control": false }
 ```
 
 If `pi-live.json` isn't valid JSON, pi-live stays off for that session and shows a warning.
+
+A project can turn control off for itself with `{ "control": false }` in `<project>/.pi/pi-live.json`. That file is read only if pi trusts the project, and it can't turn control on. `PI_LIVE_CONTROL` overrides both files.
+
+`PI_LIVE_TERMINAL` names the terminal pi runs in. Clients see it in the session file and `welcome`, so they can match a session to a window.
 
 ## For extension authors
 
@@ -175,6 +184,8 @@ The socket speaks newline-delimited JSON. Send `hello` first, then read `welcome
 ```
 
 To find sessions, read the `<session id>.json` files in the socket directory. Each one gives the socket path, process id and working directory of a session.
+
+Add `"chat": true` to `hello` to also get the session's chat: a snapshot in `welcome`, then `state`, `reply`, `tool` and other messages as they happen. Send `action` messages to act on pi, such as `{"type":"action","reqId":"a1","op":"send","text":"run the tests"}`. Check `welcome.features` for `"chat"` and `"control"` first.
 
 The full wire protocol is in [docs/protocol.md](docs/protocol.md). [src/protocol.ts](src/protocol.ts) has no imports, so you can copy it into a client for the types.
 

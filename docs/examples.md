@@ -106,6 +106,6 @@ Anything where the session is blocked on a human decision can be parked the same
 | Model fallback | "Opus is rate-limited. Switch to Sonnet?" | `{"model": "…"}` |
 | Long-task check-in | "Tests still fail after 3 tries. How should I proceed?" | free text |
 
-## What pi-live doesn't do
+## Beyond waits
 
-A client can only answer something the session is already waiting on. It can't send new prompts, steer the agent or abort a run.
+Since 0.2, a client can also follow the session's chat and, with control on, act on pi: send a prompt, steer, stop a run, switch the model or effort, rename or compact the session. See [protocol.md](protocol.md#chat) and the README's security section.

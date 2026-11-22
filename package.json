@@ -1,6 +1,6 @@
 {
   "name": "@dev8-npm/pi-live",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Answer a waiting pi session from outside the terminal, through a local socket",
   "type": "module",
   "keywords": [

@@ -32,7 +32,7 @@ import { LiveServer } from "./src/server";
 import { loadSettings } from "./src/settings";
 
 /** Kept in sync with package.json (tested). */
-export const PKG_VERSION = "0.1.0";
+export const PKG_VERSION = "0.2.0";
 
 /** Process-wide single-instance key, shared by every copy of pi-live. */
 export const GUARD_KEY = Symbol.for("pi-live.host.v1");
