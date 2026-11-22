@@ -1,18 +1,20 @@
 # pi-live
 
-Answer anything your pi session is waiting on from outside the terminal: a question, an approval, a plan review.
+Follow, drive and answer your pi sessions from outside the terminal.
 
-When pi stops to wait for you, you normally have to be at that terminal. pi-live gives each pi session a local socket that lists everything the session is waiting on. Any extension or tool that pauses for a human can park that wait with pi-live. The terminal prompt still shows, and any connected client (a web dashboard, a desktop notifier, a phone app through a bridge) can show the same wait and answer it. The first valid answer wins.
+A pi session normally lives in one terminal: you watch it there, type there, and answer its prompts there. pi-live gives each pi session a local socket, so other programs on your machine (a web dashboard, a desktop notifier, a phone app through a bridge) can do the same:
 
-pi-live never needs to understand the prompt. It relays three things:
+- **Answer waits.** Anything the session is waiting on, such as a question, an approval or a plan review, can be answered from a client. The terminal prompt still shows, and the first valid answer wins.
+- **Follow the chat.** Clients see the reply as it streams, tools as they run, the model and context use, and when to re-read the session file.
+- **Control the session.** With control on, clients can send a prompt, steer or stop a run, switch the model or effort, and rename or compact the session.
+
+Any extension or tool that pauses for a human can *park* its wait with pi-live. pi-live never needs to understand the prompt. It relays three things:
 
 - **`kind`:** a label the parker chooses, so clients know how to render the prompt.
 - **`view`:** JSON describing the prompt.
 - **`answer`:** whatever the client sends back, which the parker validates.
 
-pi-live has no UI of its own.
-
-Clients can also follow the session's chat as it happens (the reply streaming, running tools, the model and context use) and, with control on, act on pi: send a prompt, steer, stop a run, switch the model or effort, rename or compact the session.
+pi-live has no UI of its own. It's a socket, a protocol and a small command-line client.
 
 ## Contents
 
@@ -33,6 +35,8 @@ A hypothetical `pi-guard` extension stops the agent before `rm -rf`, `git push -
 
 The full code, what a client sees and more ideas are in [docs/examples.md](docs/examples.md).
 
+With chat and control, the same kind of client can do more than answer: a web dashboard can list every running pi, show each one's reply as it streams, and let you steer or stop a run from the browser.
+
 ## How it works
 
 ```
@@ -51,6 +55,8 @@ The full code, what a client sees and more ideas are in [docs/examples.md](docs/
 4. When the prompt ends, however it ends, pi-live tells every client the item is closed and why: answered by a client, answered at the keyboard, timed out, aborted or session ended.
 
 A client that connects later gets the current list of open items first, then changes as they happen.
+
+Chat works the same way. A client that asks for it gets a snapshot of the session (state, models, commands, the reply so far, running tools), then each change. Control actions go the other way and get a result back: done, or a sentence saying why not. Commands like `/new` or `/reload`, which only pi's terminal can run, are refused.
 
 ## Security
 
@@ -100,7 +106,7 @@ Watch one session. The first line lists the open items, and each later line is a
 
 ```bash
 $ bun bin/pi-live.ts watch 01a1feea-1468-750a-96d6-bf2777e60575
-{"type":"welcome","protocol":1,"session":{...},"connId":"c1","items":[]}
+{"type":"welcome","protocol":1,"version":"0.2.0","features":["chat","control"],"control":true,"session":{...},"connId":"c1","items":[]}
 {"type":"item_opened","item":{"id":"call_1","owner":"ask_user","kind":"ask_user.question","title":"Which color?","view":{...},"openedAt":1795278085572}}
 ```
 
@@ -113,19 +119,23 @@ $ bun bin/pi-live.ts answer 01a1feea-1468-750a-96d6-bf2777e60575 call_1 '{"kind"
 
 The shape of the answer is set by the extension that parked the item.
 
+The command-line client covers waits only. For chat and control, see [For client authors](#for-client-authors).
+
 ## Configuration
 
 pi-live reads environment variables first, then `pi-live.json` in pi's agent directory (`$PI_CODING_AGENT_DIR`, or `~/.pi/agent`). Settings are read again at every session start.
 
 | Setting | Environment variable | Default | Effect |
 |---|---|---|---|
-| `enabled` | `PI_LIVE_ENABLED` (`0` or `false` turns it off) | `true` | When off, there's no socket and prompts are answered only at the keyboard. |
+| `enabled` | `PI_LIVE_ENABLED` (`0` or `false` turns it off) | `true` | When off, there's no socket: no waits, chat or control from outside. |
 | `dir` | `PI_LIVE_DIR` | `<agent dir>/live` | Directory for sockets and session files. |
 | `control` | `PI_LIVE_CONTROL` (`0`/`false`/`off` or `1`/`true`/`on`) | `true` | When off, clients can watch and answer, but every action is refused. |
 
 ```json
 { "control": false }
 ```
+
+This keeps answering and following the chat, but refuses every action. Use `{ "enabled": false }` to turn pi-live off entirely.
 
 If `pi-live.json` isn't valid JSON, pi-live stays off for that session and shows a warning.
 
@@ -176,16 +186,29 @@ The socket speaks newline-delimited JSON. Send `hello` first, then read `welcome
 
 ```jsonc
 → {"type":"hello","protocol":1,"client":{"name":"my-client"}}
-← {"type":"welcome","protocol":1,"session":{"id":"…","cwd":"…","pid":1234},"connId":"c1","items":[]}
+← {"type":"welcome","protocol":1,"version":"0.2.0","features":["chat","control"],"control":true,"session":{"id":"…","cwd":"…","pid":1234,"mode":"tui"},"connId":"c1","items":[]}
 ← {"type":"item_opened","item":{"id":"call_1","kind":"…","title":"…","view":{…},"openedAt":1795278085572}}
 → {"type":"answer","reqId":"r1","id":"call_1","answer":{…}}
 ← {"type":"answer_result","reqId":"r1","id":"call_1","status":"delivered"}
 ← {"type":"item_closed","id":"call_1","outcome":{"by":"client","client":{"connId":"c1","name":"my-client"}}}
 ```
 
-To find sessions, read the `<session id>.json` files in the socket directory. Each one gives the socket path, process id and working directory of a session.
+To find sessions, read the `<session id>.json` files in the socket directory. Each one gives the socket path, process id, working directory, mode (`tui` or `rpc`) and, if set, the terminal of a session.
 
-Add `"chat": true` to `hello` to also get the session's chat: a snapshot in `welcome`, then `state`, `reply`, `tool` and other messages as they happen. Send `action` messages to act on pi, such as `{"type":"action","reqId":"a1","op":"send","text":"run the tests"}`. Check `welcome.features` for `"chat"` and `"control"` first.
+Add `"chat": true` to `hello` to also get the session's chat: a snapshot in `welcome.chat`, then `state`, `reply`, `tool`, `entries` and other messages as they happen. Send `action` messages to act on pi. Check `welcome.features` for `"chat"` and `"control"` first:
+
+```jsonc
+→ {"type":"hello","protocol":1,"client":{"name":"my-client"},"chat":true}
+← {"type":"welcome","protocol":1,"version":"0.2.0","features":["chat","control"],"control":true,"session":{…},"connId":"c1","items":[],"chat":{"state":{…},"models":[…],"commands":[…],"reply":{"blocks":[]},"tools":[]}}
+→ {"type":"action","reqId":"a1","op":"send","text":"run the tests"}
+← {"type":"action_result","reqId":"a1","ok":true}
+← {"type":"state","working":true,…}
+← {"type":"reply","blocks":[{"kind":"text","text":"Running the tests…"}]}
+```
+
+When a session ends, `goodbye` says why. Anything but `quit` (for example `new` or `reload`) means the same pi opens a new socket next.
+
+pi-live doesn't send chat history. Read it from the session file named in `welcome.session.file`, and re-read it when an `entries` message arrives.
 
 The full wire protocol is in [docs/protocol.md](docs/protocol.md). [src/protocol.ts](src/protocol.ts) has no imports, so you can copy it into a client for the types.
 
