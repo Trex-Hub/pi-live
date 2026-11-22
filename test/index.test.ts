@@ -31,6 +31,7 @@ function load() {
 	const handlers = new Map<string, Handler[]>();
 	const pi = {
 		events: bus,
+		sendUserMessage: (...args: unknown[]) => piCalls.push(["sendUserMessage", ...args]),
 		on(event: string, handler: Handler) {
 			handlers.set(event, [...(handlers.get(event) ?? []), handler]);
 		},
@@ -43,10 +44,14 @@ function load() {
 }
 
 const notes: string[] = [];
+/** Calls the extension made on the fake pi. */
+const piCalls: unknown[][] = [];
 function ctxFor(sessionId: string, mode = "tui") {
 	return {
 		mode,
 		hasUI: mode === "tui",
+		isIdle: () => true,
+		abort: () => piCalls.push(["abort"]),
 		ui: { notify: (msg: string) => notes.push(msg) },
 		sessionManager: {
 			getSessionId: () => sessionId,
@@ -102,6 +107,7 @@ beforeEach(() => {
 	process.env.PI_LIVE_DIR = dir;
 	for (const key of ["PI_LIVE_ENABLED", "PI_LIVE_CONTROL", "PI_LIVE_TERMINAL", "HC_TERMINAL_ID"]) delete process.env[key];
 	notes.length = 0;
+	piCalls.length = 0;
 	events.length = 0;
 	for (const ch of [CHANNEL_READY, CHANNEL_CLOSED]) bus.emitter.on(ch, (d) => events.push([ch, d]));
 });
@@ -420,6 +426,48 @@ describe("0.2 session fields, goodbye and control", () => {
 		expect(welcome.features).not.toContain("control");
 		client.send({ type: "action", reqId: "a1", op: "stop" });
 		expect(await client.next()).toEqual({ type: "action_result", reqId: "a1", ok: false, error: "Control is off for this pi." });
+		await s.shutdown();
+	});
+});
+
+describe("0.2 actions", () => {
+	test("control on: actions run on pi; refusals and malformed actions keep the connection", async () => {
+		const s = await startSession("s1");
+		const { client, welcome } = await helloClient(join(dir, "s1.sock"));
+		clients.push(client);
+		expect(welcome.control).toBe(true);
+		client.send({ type: "action", reqId: "a1", op: "send", text: "hello" });
+		expect(await client.next()).toEqual({ type: "action_result", reqId: "a1", ok: true });
+		client.send({ type: "action", reqId: "a2", op: "stop" });
+		expect(await client.next()).toEqual({ type: "action_result", reqId: "a2", ok: true });
+		expect(piCalls).toEqual([["sendUserMessage", "hello", { expandPromptTemplates: true }], ["abort"]]);
+		client.send({ type: "action", reqId: "a3", op: "send", text: "/quit" });
+		expect(await client.next()).toMatchObject({ reqId: "a3", ok: false, error: expect.stringContaining("/quit") });
+		client.send({ type: "action", reqId: "a4", op: "dance" });
+		expect(await client.next()).toEqual({ type: "action_result", reqId: "a4", ok: false, error: "pi does not know that action." });
+		client.send({ type: "action", op: "stop" });
+		expect(await client.next()).toEqual({ type: "error", message: "action needs a string reqId" });
+		client.send({ type: "ping", reqId: "p" });
+		expect(await client.next()).toEqual({ type: "pong", reqId: "p" });
+		expect(piCalls).toHaveLength(2);
+		await s.shutdown();
+	});
+
+	test("control off: every op refused, answers still work", async () => {
+		process.env.PI_LIVE_CONTROL = "off";
+		const s = await startSession("s1");
+		const { client } = await helloClient(join(dir, "s1.sock"));
+		clients.push(client);
+		const ops = ["send", "stop", "set_model", "set_effort", "set_name", "compact", "clear_input", "dance"];
+		for (const op of ops) {
+			client.send({ type: "action", reqId: op, op, text: "hi" });
+			expect(await client.next()).toEqual({ type: "action_result", reqId: op, ok: false, error: "Control is off for this pi." });
+		}
+		expect(piCalls).toEqual([]);
+		park("q1");
+		await client.next((m) => m.type === "item_opened");
+		client.send({ type: "answer", reqId: "r1", id: "q1", answer: "yes" });
+		expect(await client.next((m) => m.type === "answer_result")).toMatchObject({ reqId: "r1", status: "delivered" });
 		await s.shutdown();
 	});
 });

@@ -3,6 +3,7 @@
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { dirname } from "node:path";
+import { runAction } from "./src/actions";
 import { CHAT_EVENTS, Chat } from "./src/chat";
 import {
 	cleanStale,
@@ -123,6 +124,11 @@ export default function piLive(pi: ExtensionAPI): void {
 					answer: (id, answer, from, reply) => registry.answer(id, answer, from, reply),
 					sessionName: () => safe(() => pi.getSessionName() || undefined, undefined),
 					chatSnapshot: () => chat.snapshot(),
+					action: (action, _from, reply) => {
+						void runAction(action, { pi, ctx: () => ctx, changed: () => chat.scheduleState() })
+							.then(reply)
+							.catch((error) => log(`action reply failed: ${(error as Error).message}`));
+					},
 				},
 				log,
 				version: PKG_VERSION,
