@@ -1,0 +1,23 @@
+{"name": "input", "t": 1794693970129, "payload": {"type": "input", "text": "Use the bash tool twice, as two separate tool calls in the same turn if you can: first run 'ls /tmp/hw-scratch-t/work', then run 'ls /tmp/definitely-missing-dir'. Then tell me in one sentence what happened.", "source": "interactive"}}
+{"name": "agent_start", "t": 1794693970132, "payload": {"type": "agent_start"}}
+{"name": "turn_start", "t": 1794693970132, "payload": {"type": "turn_start", "turnIndex": 0, "timestamp": 1794693970132}}
+{"name": "message_start", "t": 1794693970133, "payload": {"type": "message_start", "message": {"role": "user", "content": [{"type": "text", "text": "Use the bash tool twice, as two separate tool calls in the same turn if you can: first run 'ls /tmp/hw-scratch-t/work', then run 'ls /tmp/definitely-missing-dir'. Then tell me in one sentence what happened."}], "timestamp": 1794693970130}}}
+{"name": "message_end", "t": 1794693970134, "payload": {"type": "message_end", "message": {"role": "user", "content": [{"type": "text", "text": "Use the bash tool twice, as two separate tool calls in the same turn if you can: first run 'ls /tmp/hw-scratch-t/work', then run 'ls /tmp/definitely-missing-dir'. Then tell me in one sentence what happened."}], "timestamp": 1794693970130}}}
+{"name": "message_start", "t": 1794693970178, "payload": {"type": "message_start", "message": {"role": "assistant", "stopReason": "pending", "content": []}}}
+{"name": "message_end", "t": 1794693971040, "payload": {"type": "message_end", "message": {"role": "assistant", "stopReason": "toolUse", "content": [{"type": "thinking"}, {"type": "toolCall"}, {"type": "toolCall"}]}}}
+{"name": "tool_execution_start", "t": 1794693971041, "payload": {"type": "tool_execution_start", "toolCallId": "call_a8dd9faec0234fd5b61a8636", "toolName": "bash", "args": {"command": "ls /tmp/hw-scratch-t/work"}}}
+{"name": "tool_execution_start", "t": 1794693971045, "payload": {"type": "tool_execution_start", "toolCallId": "call_8492d0b9fd1a4f3c91d26981", "toolName": "bash", "args": {"command": "ls /tmp/definitely-missing-dir"}}}
+{"name": "tool_execution_end", "t": 1794693971060, "payload": {"type": "tool_execution_end", "toolCallId": "call_a8dd9faec0234fd5b61a8636", "toolName": "bash", "isError": false}}
+{"name": "tool_execution_end", "t": 1794693971061, "payload": {"type": "tool_execution_end", "toolCallId": "call_8492d0b9fd1a4f3c91d26981", "toolName": "bash", "isError": true}}
+{"name": "message_start", "t": 1794693971061, "payload": {"type": "message_start", "message": {"role": "toolResult", "toolCallId": "call_a8dd9faec0234fd5b61a8636", "toolName": "bash", "isError": false}}}
+{"name": "message_end", "t": 1794693971061, "payload": {"type": "message_end", "message": {"role": "toolResult", "toolCallId": "call_a8dd9faec0234fd5b61a8636", "toolName": "bash", "isError": false}}}
+{"name": "message_start", "t": 1794693971061, "payload": {"type": "message_start", "message": {"role": "toolResult", "toolCallId": "call_8492d0b9fd1a4f3c91d26981", "toolName": "bash", "isError": true}}}
+{"name": "message_end", "t": 1794693971061, "payload": {"type": "message_end", "message": {"role": "toolResult", "toolCallId": "call_8492d0b9fd1a4f3c91d26981", "toolName": "bash", "isError": true}}}
+{"name": "turn_end", "t": 1794693971062, "payload": {"type": "turn_end"}}
+{"name": "turn_start", "t": 1794693971063, "payload": {"type": "turn_start", "turnIndex": 1, "timestamp": 1794693971063}}
+{"name": "message_start", "t": 1794693971078, "payload": {"type": "message_start", "message": {"role": "assistant", "stopReason": "pending", "content": []}}}
+{"name": "message_end", "t": 1794693971955, "payload": {"type": "message_end", "message": {"role": "assistant", "stopReason": "stop", "content": [{"type": "thinking"}, {"type": "text"}]}}}
+{"name": "turn_end", "t": 1794693971956, "payload": {"type": "turn_end"}}
+{"name": "agent_end", "t": 1794693971969, "payload": {"type": "agent_end"}}
+{"name": "agent_before_settle", "t": 1794693971971, "payload": {"type": "agent_before_settle"}}
+{"name": "agent_settled", "t": 1794693971972, "payload": {"type": "agent_settled", "aborted": false}}

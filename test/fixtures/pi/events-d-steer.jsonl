@@ -1,0 +1,22 @@
+{"name": "input", "t": 1794693989159, "payload": {"type": "input", "text": "Run the bash command 'sleep 10; echo done-sleeping' and then say 'finished the sleep'.", "source": "interactive"}}
+{"name": "agent_start", "t": 1794693989161, "payload": {"type": "agent_start"}}
+{"name": "turn_start", "t": 1794693989161, "payload": {"type": "turn_start", "turnIndex": 0, "timestamp": 1794693989161}}
+{"name": "message_start", "t": 1794693989162, "payload": {"type": "message_start", "message": {"role": "user", "content": [{"type": "text", "text": "Run the bash command 'sleep 10; echo done-sleeping' and then say 'finished the sleep'."}], "timestamp": 1794693989160}}}
+{"name": "message_end", "t": 1794693989162, "payload": {"type": "message_end", "message": {"role": "user", "content": [{"type": "text", "text": "Run the bash command 'sleep 10; echo done-sleeping' and then say 'finished the sleep'."}], "timestamp": 1794693989160}}}
+{"name": "message_start", "t": 1794693989215, "payload": {"type": "message_start", "message": {"role": "assistant", "stopReason": "pending", "content": []}}}
+{"name": "input", "t": 1794694051333, "payload": {"type": "input", "text": "Actually, also tell me the word PINEAPPLE at the end of your answer.", "source": "interactive", "streamingBehavior": "steer"}}
+{"name": "message_end", "t": 1794694082986, "payload": {"type": "message_end", "message": {"role": "assistant", "stopReason": "toolUse", "content": [{"type": "thinking"}, {"type": "toolCall"}]}}}
+{"name": "tool_execution_start", "t": 1794694082988, "payload": {"type": "tool_execution_start", "toolCallId": "call_4e169e9a00584289aed02083", "toolName": "bash", "args": {"command": "sleep 10; echo done-sleeping", "timeout": 30}}}
+{"name": "tool_execution_end", "t": 1794694093021, "payload": {"type": "tool_execution_end", "toolCallId": "call_4e169e9a00584289aed02083", "toolName": "bash", "isError": false}}
+{"name": "message_start", "t": 1794694093022, "payload": {"type": "message_start", "message": {"role": "toolResult", "toolCallId": "call_4e169e9a00584289aed02083", "toolName": "bash", "isError": false}}}
+{"name": "message_end", "t": 1794694093022, "payload": {"type": "message_end", "message": {"role": "toolResult", "toolCallId": "call_4e169e9a00584289aed02083", "toolName": "bash", "isError": false}}}
+{"name": "turn_end", "t": 1794694093023, "payload": {"type": "turn_end"}}
+{"name": "turn_start", "t": 1794694093027, "payload": {"type": "turn_start", "turnIndex": 1, "timestamp": 1794694093027}}
+{"name": "message_start", "t": 1794694093028, "payload": {"type": "message_start", "message": {"role": "user", "content": [{"type": "text", "text": "Actually, also tell me the word PINEAPPLE at the end of your answer."}], "timestamp": 1794694051363}}}
+{"name": "message_end", "t": 1794694093028, "payload": {"type": "message_end", "message": {"role": "user", "content": [{"type": "text", "text": "Actually, also tell me the word PINEAPPLE at the end of your answer."}], "timestamp": 1794694051363}}}
+{"name": "message_start", "t": 1794694093128, "payload": {"type": "message_start", "message": {"role": "assistant", "stopReason": "pending", "content": []}}}
+{"name": "message_end", "t": 1794694120242, "payload": {"type": "message_end", "message": {"role": "assistant", "stopReason": "stop", "content": [{"type": "thinking"}, {"type": "text"}]}}}
+{"name": "turn_end", "t": 1794694120242, "payload": {"type": "turn_end"}}
+{"name": "agent_end", "t": 1794694120245, "payload": {"type": "agent_end"}}
+{"name": "agent_before_settle", "t": 1794694120247, "payload": {"type": "agent_before_settle"}}
+{"name": "agent_settled", "t": 1794694120249, "payload": {"type": "agent_settled", "aborted": false}}

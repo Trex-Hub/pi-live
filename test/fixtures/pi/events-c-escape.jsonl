@@ -1,0 +1,10 @@
+{"name": "input", "t": 1794693978401, "payload": {"type": "input", "text": "Write a very long numbered list of 200 distinct fun facts about the ocean, one per line, with a full sentence each.", "source": "interactive"}}
+{"name": "agent_start", "t": 1794693978407, "payload": {"type": "agent_start"}}
+{"name": "turn_start", "t": 1794693978408, "payload": {"type": "turn_start", "turnIndex": 0, "timestamp": 1794693978408}}
+{"name": "message_start", "t": 1794693978409, "payload": {"type": "message_start", "message": {"role": "user", "content": [{"type": "text", "text": "Write a very long numbered list of 200 distinct fun facts about the ocean, one per line, with a full sentence each."}], "timestamp": 1794693978405}}}
+{"name": "message_end", "t": 1794693978411, "payload": {"type": "message_end", "message": {"role": "user", "content": [{"type": "text", "text": "Write a very long numbered list of 200 distinct fun facts about the ocean, one per line, with a full sentence each."}], "timestamp": 1794693978405}}}
+{"name": "message_start", "t": 1794693978493, "payload": {"type": "message_start", "message": {"role": "assistant", "stopReason": "pending", "content": []}}}
+{"name": "message_end", "t": 1794693980474, "payload": {"type": "message_end", "message": {"role": "assistant", "stopReason": "aborted", "content": [{"type": "thinking"}]}}}
+{"name": "turn_end", "t": 1794693980476, "payload": {"type": "turn_end"}}
+{"name": "agent_end", "t": 1794693980477, "payload": {"type": "agent_end"}}
+{"name": "agent_settled", "t": 1794693980478, "payload": {"type": "agent_settled", "aborted": true}}

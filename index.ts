@@ -3,6 +3,7 @@
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { dirname } from "node:path";
+import { CHAT_EVENTS, Chat } from "./src/chat";
 import {
 	cleanStale,
 	ensurePrivateDir,
@@ -39,6 +40,7 @@ interface Running {
 	ready: ReadyInfo;
 	server: LiveServer;
 	registry: Registry;
+	chat: Chat;
 	sidecarPath: string;
 	sidecarId: FileId | undefined;
 	unsubscribe: Array<() => void>;
@@ -104,6 +106,7 @@ export default function piLive(pi: ExtensionAPI): void {
 		}
 
 		let server: LiveServer | undefined;
+		const chat = new Chat(pi, c, (message) => server?.broadcastChat(message));
 		const registry = new Registry(
 			{
 				opened: (item) => server?.broadcast({ type: "item_opened", item }),
@@ -119,6 +122,7 @@ export default function piLive(pi: ExtensionAPI): void {
 					items: () => registry.items(),
 					answer: (id, answer, from, reply) => registry.answer(id, answer, from, reply),
 					sessionName: () => safe(() => pi.getSessionName() || undefined, undefined),
+					chatSnapshot: () => chat.snapshot(),
 				},
 				log,
 				version: PKG_VERSION,
@@ -131,6 +135,7 @@ export default function piLive(pi: ExtensionAPI): void {
 			} else {
 				log(`could not listen on ${socketPath}: ${(error as Error).message}; off for this session`);
 			}
+			chat.dispose();
 			return;
 		}
 
@@ -180,7 +185,7 @@ export default function piLive(pi: ExtensionAPI): void {
 				}
 			}),
 		];
-		running = { ready, server, registry, sidecarPath, sidecarId, unsubscribe, onExit };
+		running = { ready, server, registry, chat, sidecarPath, sidecarId, unsubscribe, onExit };
 		pi.events.emit(CHANNEL_READY, ready);
 	}
 
@@ -189,6 +194,7 @@ export default function piLive(pi: ExtensionAPI): void {
 		if (!r) return;
 		running = undefined;
 		for (const off of r.unsubscribe) off();
+		r.chat.dispose();
 		r.registry.closeAll({ by: "shutdown" });
 		r.server.close(reason);
 		removeIfOurs(r.sidecarPath, r.sidecarId);
@@ -201,6 +207,17 @@ export default function piLive(pi: ExtensionAPI): void {
 		starting = start(c).catch((error) => log(`could not start: ${(error as Error).message}`));
 		await starting;
 	});
+
+	const on = pi.on as (event: string, handler: (event: unknown, c: ExtensionContext) => void) => void;
+	for (const name of CHAT_EVENTS) {
+		on(name, (event, c) => {
+			try {
+				running?.chat.handle(name, event, c);
+			} catch (error) {
+				log(`${name} failed: ${(error as Error).message}`);
+			}
+		});
+	}
 
 	pi.on("session_shutdown", async (event) => {
 		await starting;

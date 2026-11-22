@@ -423,3 +423,62 @@ describe("0.2 session fields, goodbye and control", () => {
 		await s.shutdown();
 	});
 });
+
+describe("0.2 chat", () => {
+	const assistant = (text?: string) => ({ message: { role: "assistant", content: text === undefined ? [] : [{ type: "text", text }] } });
+
+	test("a chat client joining mid-run gets the reply so far, the running tool, pending and the open dialog, then every change", async () => {
+		const s = await startSession("s1");
+		const fire = (event: string, payload: unknown) => s.fire(event, payload, s.ctx);
+		await fire("agent_start", {});
+		await fire("message_start", assistant());
+		await fire("message_update", assistant("so far"));
+		await fire("tool_execution_start", { toolCallId: "t1", toolName: "bash", args: { command: "sleep 1" } });
+		await fire("input", { text: "also this", streamingBehavior: "steer" });
+		await fire("ui_prompt_start", { kind: "confirm", title: "Allow?" });
+
+		const { client, welcome } = await helloClient(join(dir, "s1.sock"), "web", { chat: true });
+		clients.push(client);
+		expect(welcome.features).toEqual(["chat", "control"]);
+		expect(welcome.chat).toMatchObject({
+			state: {
+				working: true,
+				pending: [{ id: "p1", text: "also this", mode: "steer" }],
+				waitingForUser: { kind: "confirm", title: "Allow?" },
+			},
+			reply: { blocks: [{ kind: "text", text: "so far" }] },
+			tools: [{ callId: "t1", name: "bash", argument: "sleep 1" }],
+		});
+
+		await fire("tool_execution_end", { toolCallId: "t1", toolName: "bash", isError: false });
+		expect(await client.next((m) => m.type === "tool")).toEqual({ type: "tool", phase: "end", callId: "t1", name: "bash", isError: false });
+		await fire("ui_prompt_end", { kind: "confirm" });
+		expect(await client.next((m) => m.type === "state" && m.waitingForUser === null)).toMatchObject({ working: true });
+		await fire("message_end", assistant("so far, done"));
+		expect(await client.next((m) => m.type === "entries")).toMatchObject({ replyDone: true });
+		await fire("agent_settled", {});
+		expect(await client.next((m) => m.type === "state" && m.working === false)).toMatchObject({ pending: [] });
+		await s.shutdown();
+	});
+
+	test("a client without chat: true gets no chat messages", async () => {
+		const s = await startSession("s1");
+		const { client } = await helloClient(join(dir, "s1.sock"), "plain");
+		clients.push(client);
+		await s.fire("agent_start", {}, s.ctx);
+		await s.fire("session_compact_failed", { errorMessage: "no" }, s.ctx);
+		await new Promise((r) => setTimeout(r, 30));
+		client.send({ type: "ping", reqId: "p" });
+		expect(await client.next()).toEqual({ type: "pong", reqId: "p" });
+		await s.shutdown();
+	});
+
+	test("no session socket: hooks do nothing", async () => {
+		process.env.PI_LIVE_ENABLED = "0";
+		const s = await startSession("s1");
+		await s.fire("agent_start", {}, s.ctx);
+		await s.fire("message_update", assistant("x"), s.ctx);
+		await s.shutdown();
+		expect(existsSync(dir)).toBe(false);
+	});
+});

@@ -1,0 +1,3 @@
+{"name": "probe_loaded", "t": 1794693945269, "payload": {"env_HC_TERMINAL_ID": "t1", "pid": 46860}}
+{"name": "session_start", "t": 1794693945340, "payload": {"type": "session_start", "reason": "startup"}}
+{"name": "session_start_ctx", "t": 1794693945341, "payload": {"env_HC_TERMINAL_ID": "t1", "sessionFile": "/tmp/hw-scratch-t/pi-sessions/2026-11-14T22-05-44-942Z_01a1dc18-566e-7071-b79c-4270bd0afcb6.jsonl", "model": {"provider": "llama-swap", "id": "zorro-davidau-3.8-flash-next", "name": "DavidAU Qwen3.8 Flash-Next (IQ3_S) - 10 x 256K, int8 KV, vision", "reasoning": false}, "thinkingLevel": "off", "scopedModels": [], "leaf": "3e40feb0", "cwd": "/private/tmp/hw-scratch-t/work"}}

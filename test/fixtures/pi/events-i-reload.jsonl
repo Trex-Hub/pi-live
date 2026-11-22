@@ -1,0 +1,5 @@
+{"name": "session_shutdown", "t": 1794694905469, "payload": {"type": "session_shutdown", "reason": "reload"}}
+{"name": "probe_loaded", "t": 1794694905624, "payload": {"env_HC_TERMINAL_ID": "t1", "pid": 46860}}
+{"name": "session_start", "t": 1794694905628, "payload": {"type": "session_start", "reason": "reload"}}
+{"name": "session_start_ctx", "t": 1794694905628, "payload": {"env_HC_TERMINAL_ID": "t1", "sessionFile": "/tmp/hw-scratch-t/pi-sessions/2026-11-14T22-20-08-226Z_01a1dc25-82a2-7071-b79c-42771e649bbc.jsonl", "model": {"provider": "openrouter", "id": "deepseek/deepseek-v4.1-flash-1017", "name": "DeepSeek: DeepSeek V4.1 Flash 1017", "reasoning": true}, "thinkingLevel": "off", "scopedModels": [], "leaf": "645d4a4e", "cwd": "/private/tmp/hw-scratch-t/work"}}
+{"name": "session_shutdown", "t": 1794694961210, "payload": {"type": "session_shutdown", "reason": "quit"}}

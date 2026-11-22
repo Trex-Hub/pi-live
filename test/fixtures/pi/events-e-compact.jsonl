@@ -1,0 +1,13 @@
+{"name": "session_before_compact", "t": 1794694744525, "payload": {"type": "session_before_compact"}}
+{"name": "session_compact", "t": 1794694753303, "payload": {"type": "session_compact", "compactionEntry": {"id": "a3d852f4", "firstKeptEntryId": "395b3043"}}}
+{"name": "input", "t": 1794694762315, "payload": {"type": "input", "text": "What is 2+2? One word.", "source": "interactive"}}
+{"name": "agent_start", "t": 1794694762316, "payload": {"type": "agent_start"}}
+{"name": "turn_start", "t": 1794694762317, "payload": {"type": "turn_start", "turnIndex": 0, "timestamp": 1794694762317}}
+{"name": "message_start", "t": 1794694762317, "payload": {"type": "message_start", "message": {"role": "user", "content": [{"type": "text", "text": "What is 2+2? One word."}], "timestamp": 1794694762316}}}
+{"name": "message_end", "t": 1794694762317, "payload": {"type": "message_end", "message": {"role": "user", "content": [{"type": "text", "text": "What is 2+2? One word."}], "timestamp": 1794694762316}}}
+{"name": "message_start", "t": 1794694762427, "payload": {"type": "message_start", "message": {"role": "assistant", "stopReason": "pending", "content": []}}}
+{"name": "message_end", "t": 1794694774206, "payload": {"type": "message_end", "message": {"role": "assistant", "stopReason": "stop", "content": [{"type": "thinking"}, {"type": "text"}]}}}
+{"name": "turn_end", "t": 1794694774207, "payload": {"type": "turn_end"}}
+{"name": "agent_end", "t": 1794694774210, "payload": {"type": "agent_end"}}
+{"name": "agent_before_settle", "t": 1794694774211, "payload": {"type": "agent_before_settle"}}
+{"name": "agent_settled", "t": 1794694774213, "payload": {"type": "agent_settled", "aborted": false}}

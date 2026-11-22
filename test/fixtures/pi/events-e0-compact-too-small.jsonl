@@ -1,0 +1,1 @@
+{"name": "session_compact_failed", "t": 1794694131040, "payload": {"type": "session_compact_failed", "reason": "manual", "errorMessage": "Compaction failed: Nothing to compact (session too small)", "aborted": false, "willRetry": false, "fromExtension": false}}

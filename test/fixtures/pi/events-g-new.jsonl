@@ -1,0 +1,16 @@
+{"name": "session_before_switch", "t": 1794694808199, "payload": {"type": "session_before_switch", "reason": "new"}}
+{"name": "session_shutdown", "t": 1794694808226, "payload": {"type": "session_shutdown", "reason": "new", "targetSessionFile": "/tmp/hw-scratch-t/pi-sessions/2026-11-14T22-20-08-226Z_01a1dc25-82a2-7071-b79c-42771e649bbc.jsonl"}}
+{"name": "probe_loaded", "t": 1794694808317, "payload": {"env_HC_TERMINAL_ID": "t1", "pid": 46860}}
+{"name": "session_start", "t": 1794694808338, "payload": {"type": "session_start", "reason": "new", "previousSessionFile": "/tmp/hw-scratch-t/pi-sessions/2026-11-14T22-05-44-942Z_01a1dc18-566e-7071-b79c-4270bd0afcb6.jsonl"}}
+{"name": "session_start_ctx", "t": 1794694808339, "payload": {"env_HC_TERMINAL_ID": "t1", "sessionFile": "/tmp/hw-scratch-t/pi-sessions/2026-11-14T22-20-08-226Z_01a1dc25-82a2-7071-b79c-42771e649bbc.jsonl", "model": {"provider": "llama-swap", "id": "zorro-davidau-3.8-flash-next", "name": "DavidAU Qwen3.8 Flash-Next (IQ3_S) - 10 x 256K, int8 KV, vision", "reasoning": false}, "thinkingLevel": "off", "scopedModels": [], "leaf": "9b51bb5f", "cwd": "/private/tmp/hw-scratch-t/work"}}
+{"name": "input", "t": 1794694814433, "payload": {"type": "input", "text": "Name three metals, short.", "source": "interactive"}}
+{"name": "agent_start", "t": 1794694814437, "payload": {"type": "agent_start"}}
+{"name": "turn_start", "t": 1794694814438, "payload": {"type": "turn_start", "turnIndex": 0, "timestamp": 1794694814437}}
+{"name": "message_start", "t": 1794694814443, "payload": {"type": "message_start", "message": {"role": "user", "content": [{"type": "text", "text": "Name three metals, short."}], "timestamp": 1794694814434}}}
+{"name": "message_end", "t": 1794694814443, "payload": {"type": "message_end", "message": {"role": "user", "content": [{"type": "text", "text": "Name three metals, short."}], "timestamp": 1794694814434}}}
+{"name": "message_start", "t": 1794694814473, "payload": {"type": "message_start", "message": {"role": "assistant", "stopReason": "pending", "content": []}}}
+{"name": "message_end", "t": 1794694816000, "payload": {"type": "message_end", "message": {"role": "assistant", "stopReason": "stop", "content": [{"type": "thinking"}, {"type": "text"}]}}}
+{"name": "turn_end", "t": 1794694816001, "payload": {"type": "turn_end"}}
+{"name": "agent_end", "t": 1794694816002, "payload": {"type": "agent_end"}}
+{"name": "agent_before_settle", "t": 1794694816003, "payload": {"type": "agent_before_settle"}}
+{"name": "agent_settled", "t": 1794694816003, "payload": {"type": "agent_settled", "aborted": false}}

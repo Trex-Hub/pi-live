@@ -1,0 +1,13 @@
+{"name": "session_before_tree", "t": 1794694797684, "payload": {"type": "session_before_tree"}}
+{"name": "session_tree", "t": 1794694797685, "payload": {"type": "session_tree", "newLeafId": "f7198b28", "oldLeafId": "31f8d644"}}
+{"name": "input", "t": 1794694801000, "payload": {"type": "input", "text": "Name three planets, short.Name three trees, short.", "source": "interactive"}}
+{"name": "agent_start", "t": 1794694801001, "payload": {"type": "agent_start"}}
+{"name": "turn_start", "t": 1794694801001, "payload": {"type": "turn_start", "turnIndex": 0, "timestamp": 1794694801001}}
+{"name": "message_start", "t": 1794694801001, "payload": {"type": "message_start", "message": {"role": "user", "content": [{"type": "text", "text": "Name three planets, short.Name three trees, short."}], "timestamp": 1794694801000}}}
+{"name": "message_end", "t": 1794694801001, "payload": {"type": "message_end", "message": {"role": "user", "content": [{"type": "text", "text": "Name three planets, short.Name three trees, short."}], "timestamp": 1794694801000}}}
+{"name": "message_start", "t": 1794694801069, "payload": {"type": "message_start", "message": {"role": "assistant", "stopReason": "pending", "content": []}}}
+{"name": "message_end", "t": 1794694801899, "payload": {"type": "message_end", "message": {"role": "assistant", "stopReason": "stop", "content": [{"type": "thinking"}, {"type": "text"}]}}}
+{"name": "turn_end", "t": 1794694801900, "payload": {"type": "turn_end"}}
+{"name": "agent_end", "t": 1794694801901, "payload": {"type": "agent_end"}}
+{"name": "agent_before_settle", "t": 1794694801901, "payload": {"type": "agent_before_settle"}}
+{"name": "agent_settled", "t": 1794694801903, "payload": {"type": "agent_settled", "aborted": false}}

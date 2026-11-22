@@ -3,7 +3,7 @@ import { existsSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { ChatSnapshot, ParkRequest, ParkTicket, SessionInfo } from "../src/protocol";
 import { Registry } from "../src/registry";
-import { LiveServer, MAX_CLIENTS, MAX_LINE_BYTES, type ServerHandler } from "../src/server";
+import { LiveServer, MAX_CLIENTS, MAX_LINE_BYTES, REPLY_SKIP_BYTES, type ServerHandler } from "../src/server";
 import { helloClient, openClient, tempDir, tick, type TestClient } from "./helpers";
 
 const session: SessionInfo = { id: "s1", file: "/x/s1.jsonl", cwd: "/x", pid: process.pid };
@@ -421,6 +421,43 @@ describe("0.2 welcome, chat opt-in, actions, goodbye", () => {
 		const { welcome } = await hello("chat", { chat: true });
 		expect(welcome.features).toEqual([]);
 		expect("chat" in welcome).toBe(false);
+	});
+
+	test("chat messages go only to chat: true clients", async () => {
+		await listen(true);
+		const { client: plain } = await hello("plain");
+		const { client: chat } = await hello("chat", { chat: true });
+		server.broadcastChat({ type: "notice", level: "info", text: "hi" });
+		server.broadcast({ type: "pong", reqId: "marker" });
+		expect(await chat.next()).toEqual({ type: "notice", level: "info", text: "hi" });
+		expect(await plain.next()).toEqual({ type: "pong", reqId: "marker" });
+	});
+
+	test("a slow chat client misses reply messages but gets the rest; 4 MiB still disconnects", async () => {
+		await listen(true);
+		const { client: slow } = await hello("slow", { chat: true });
+		const { client: fast } = await hello("fast", { chat: true });
+		slow.socket.pause();
+		// Fill the slow client's buffer past 1 MiB (but under 4 MiB) with one big message.
+		server.broadcastChat({ type: "notice", level: "info", text: "z".repeat(REPLY_SKIP_BYTES + 512 * 1024) });
+		await fast.next((m) => m.type === "notice");
+		server.broadcastChat({ type: "reply", blocks: [{ kind: "text", text: "skipped for slow" }] });
+		server.broadcastChat({ type: "entries", leafId: "L1", replyDone: true });
+		expect(await fast.next()).toEqual({ type: "reply", blocks: [{ kind: "text", text: "skipped for slow" }] });
+		expect(await fast.next()).toEqual({ type: "entries", leafId: "L1", replyDone: true });
+		expect(server.clientCount).toBe(2);
+		slow.socket.resume();
+		expect((await slow.next()).type).toBe("notice");
+		expect(await slow.next()).toEqual({ type: "entries", leafId: "L1", replyDone: true });
+
+		slow.socket.pause();
+		for (let i = 0; i < 20 && server.clientCount === 2; i++) {
+			server.broadcastChat({ type: "notice", level: "info", text: "z".repeat(512 * 1024) });
+			await fast.next((m) => m.type === "notice");
+		}
+		expect(server.clientCount).toBe(1);
+		slow.socket.resume();
+		await slow.closed;
 	});
 
 	test("goodbye carries pi's shutdown reason", async () => {

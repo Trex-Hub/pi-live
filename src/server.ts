@@ -7,6 +7,7 @@ import {
 	PROTOCOL_VERSION,
 	type ActionOutcome,
 	type AnswerResult,
+	type ChatMessage,
 	type ChatSnapshot,
 	type ClientInfo,
 	type Feature,
@@ -19,6 +20,8 @@ import {
 export const MAX_LINE_BYTES = 1024 * 1024;
 export const MAX_CLIENTS = 32;
 export const MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
+/** A `reply` is skipped for a client with more than this unsent; the next one carries the whole reply. */
+export const REPLY_SKIP_BYTES = 1024 * 1024;
 /** A connection that hasn't said hello by then is closed, so idle connections can't hold slots. */
 export const HELLO_TIMEOUT_MS = 5000;
 export const CONTROL_OFF = "Control is off for this pi.";
@@ -148,6 +151,18 @@ export class LiveServer {
 		if (this.closed) return;
 		for (const client of this.clients) {
 			if (client.info) this.send(client, message);
+		}
+	}
+
+	/** Send a chat message to every `chat: true` client. Slow clients miss `reply` messages. */
+	broadcastChat(message: ChatMessage): void {
+		if (this.closed) return;
+		let line: string | undefined;
+		for (const client of this.clients) {
+			if (!client.chat || !client.info) continue;
+			if (message.type === "reply" && client.socket.writableLength > REPLY_SKIP_BYTES) continue;
+			line ??= `${JSON.stringify(message)}\n`;
+			this.send(client, message, line);
 		}
 	}
 
@@ -282,9 +297,9 @@ export class LiveServer {
 		}
 	}
 
-	private send(client: Client, message: ServerMessage): void {
+	private send(client: Client, message: ServerMessage, line = `${JSON.stringify(message)}\n`): void {
 		if (client.closing || client.socket.destroyed) return;
-		const ok = client.socket.write(`${JSON.stringify(message)}\n`);
+		const ok = client.socket.write(line);
 		if (!ok && client.socket.writableLength > MAX_BUFFERED_BYTES) {
 			this.log(`dropping ${client.info?.name ?? "client"} (${client.info?.connId ?? "no hello"}): not reading`);
 			client.closing = true;
