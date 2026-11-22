@@ -115,7 +115,13 @@ async function perform(action: Record<string, unknown>, { pi, ctx, changed }: Ac
 			return;
 		}
 		case "clear_input":
-			if (c.hasUI) c.ui.setEditorText("");
+			if (!c.hasUI) return;
+			c.ui.setEditorText("");
+			// pi 1.5.2 interactive-mode.js:2194 `setEditorText: (text) => this.editor.setText(text)` doesn't
+			// repaint, so the old draft stays on screen. setStatus repaints (interactive-mode.js:1889-1891
+			// `setExtensionStatus` → `this.ui.requestRender()`), and removing a status we never set changes
+			// nothing visible. Only in the TUI: in RPC mode setStatus is sent to the RPC client.
+			if (c.mode === "tui") c.ui.setStatus("pi-live", undefined);
 			return;
 		default:
 			throw new Error("pi does not know that action.");

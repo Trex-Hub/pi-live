@@ -4,15 +4,19 @@ import { BUILTIN_COMMANDS, runAction } from "../src/actions";
 type FakeModel = { provider: string; id: string; reasoning?: boolean };
 
 /** A fake pi + ctx that records what the action did. */
-function setup(init: { idle?: boolean; hasUI?: boolean; model?: FakeModel; apiKey?: boolean; noCtx?: boolean } = {}) {
+function setup(init: { idle?: boolean; hasUI?: boolean; mode?: string; model?: FakeModel; apiKey?: boolean; noCtx?: boolean } = {}) {
 	const calls: unknown[][] = [];
 	const known: FakeModel[] = [{ provider: "anthropic", id: "claude", reasoning: true }];
 	const ctx = {
 		hasUI: init.hasUI ?? true,
+		mode: init.mode ?? "tui",
 		isIdle: () => init.idle ?? true,
 		abort: () => calls.push(["abort"]),
 		compact: (options: unknown) => calls.push(["compact", options]),
-		ui: { setEditorText: (text: string) => calls.push(["setEditorText", text]) },
+		ui: {
+			setEditorText: (text: string) => calls.push(["setEditorText", text]),
+			setStatus: (key: string, text: string | undefined) => calls.push(["setStatus", key, text]),
+		},
 		model: init.model,
 		modelRegistry: { find: (provider: string, id: string) => known.find((m) => m.provider === provider && m.id === id) },
 	};
@@ -139,10 +143,17 @@ test("compact passes instructions; a failure is left to pi's session_compact_fai
 	expect(() => onError(new Error("boom"))).not.toThrow();
 });
 
-test("clear_input empties pi's editor; without a UI it is a no-op", async () => {
+test("clear_input empties pi's editor and repaints the TUI; without a UI it is a no-op", async () => {
 	const ui = setup({ hasUI: true });
 	expect(await ui.run({ op: "clear_input" })).toEqual({ ok: true });
-	expect(ui.calls).toEqual([["setEditorText", ""]]);
+	// setStatus with an unset key only repaints (setEditorText alone doesn't in pi 1.5.2).
+	expect(ui.calls).toEqual([
+		["setEditorText", ""],
+		["setStatus", "pi-live", undefined],
+	]);
+	const rpc = setup({ hasUI: true, mode: "rpc" });
+	expect(await rpc.run({ op: "clear_input" })).toEqual({ ok: true });
+	expect(rpc.calls).toEqual([["setEditorText", ""]]);
 	const headless = setup({ hasUI: false });
 	expect(await headless.run({ op: "clear_input" })).toEqual({ ok: true });
 	expect(headless.calls).toEqual([]);
