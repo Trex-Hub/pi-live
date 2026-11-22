@@ -3,13 +3,25 @@ import { chmodSync, linkSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import { type FileId, fileId, removeIfOurs } from "./paths";
-import { PROTOCOL_VERSION, type AnswerResult, type ClientInfo, type Item, type ServerMessage, type SessionInfo } from "./protocol";
+import {
+	PROTOCOL_VERSION,
+	type ActionOutcome,
+	type AnswerResult,
+	type ChatSnapshot,
+	type ClientInfo,
+	type Feature,
+	type Item,
+	type ServerMessage,
+	type SessionInfo,
+	type ShutdownReason,
+} from "./protocol";
 
 export const MAX_LINE_BYTES = 1024 * 1024;
 export const MAX_CLIENTS = 32;
 export const MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
 /** A connection that hasn't said hello by then is closed, so idle connections can't hold slots. */
 export const HELLO_TIMEOUT_MS = 5000;
+export const CONTROL_OFF = "Control is off for this pi.";
 /** After `goodbye`, a client that doesn't let the connection end is destroyed after this long. */
 const CLOSE_GRACE_MS = 1000;
 
@@ -17,6 +29,12 @@ const CLOSE_GRACE_MS = 1000;
 export interface ServerHandler {
 	items(): Item[];
 	answer(id: string, answer: unknown, from: ClientInfo, reply: (result: AnswerResult) => void): void;
+	/** The session name for `welcome.session.name`, if any. */
+	sessionName?(): string | undefined;
+	/** The whole chat picture for a `chat: true` client's welcome. Without it, "chat" isn't offered. */
+	chatSnapshot?(): ChatSnapshot;
+	/** Run a client action (only called when control is on). `action` is the raw message with a string reqId. */
+	action?(action: Record<string, unknown>, from: ClientInfo, reply: (outcome: ActionOutcome) => void): void;
 }
 
 export interface ListenOptions {
@@ -24,6 +42,10 @@ export interface ListenOptions {
 	session: SessionInfo;
 	handler: ServerHandler;
 	log?: (message: string) => void;
+	/** pi-live's package version, for `welcome.version`. */
+	version?: string;
+	/** Whether clients may act on pi. */
+	control?: boolean;
 	/** Defaults to HELLO_TIMEOUT_MS. For tests. */
 	helloTimeoutMs?: number;
 }
@@ -32,6 +54,8 @@ interface Client {
 	socket: Socket;
 	/** Set by `hello`; only clients with a connId get broadcasts. */
 	info?: ClientInfo;
+	/** Said `chat: true` in hello. */
+	chat: boolean;
 	pending: Buffer[];
 	pendingBytes: number;
 	closing: boolean;
@@ -53,6 +77,8 @@ export class LiveServer {
 		private readonly handler: ServerHandler,
 		private readonly log: (message: string) => void,
 		private readonly helloTimeoutMs: number,
+		private readonly version: string | undefined,
+		private readonly control: boolean,
 	) {
 		server.on("connection", (socket) => this.guard(() => this.onConnection(socket)));
 		server.on("error", (error) => this.log(`socket server error: ${error.message}`));
@@ -104,6 +130,8 @@ export class LiveServer {
 						options.handler,
 						log,
 						options.helloTimeoutMs ?? HELLO_TIMEOUT_MS,
+						options.version,
+						options.control === true,
 					),
 				);
 			});
@@ -123,12 +151,15 @@ export class LiveServer {
 		}
 	}
 
-	/** Send `goodbye`, end every connection, stop listening and unlink the socket if it's still ours. Doesn't wait for clients. */
-	close(): void {
+	/**
+	 * Send `goodbye` (with pi's shutdown reason, if given), end every connection,
+	 * stop listening and unlink the socket if it's still ours. Doesn't wait for clients.
+	 */
+	close(shutdown?: ShutdownReason): void {
 		if (this.closed) return;
 		this.closed = true;
 		for (const client of this.clients) {
-			if (client.info) this.send(client, { type: "goodbye", reason: "session_shutdown" });
+			if (client.info) this.send(client, { type: "goodbye", reason: "session_shutdown", ...(shutdown ? { shutdown } : {}) });
 			this.end(client);
 		}
 		this.server.close();
@@ -137,7 +168,7 @@ export class LiveServer {
 
 	private onConnection(socket: Socket): void {
 		socket.unref();
-		const client: Client = { socket, pending: [], pendingBytes: 0, closing: false };
+		const client: Client = { socket, chat: false, pending: [], pendingBytes: 0, closing: false };
 		socket.on("error", () => {
 			// Disconnects (EPIPE, ECONNRESET) are normal; "close" follows.
 		});
@@ -200,13 +231,22 @@ export class LiveServer {
 			if (typeof name !== "string") return this.reject(client, "invalid hello");
 			clearTimeout(client.helloTimer);
 			client.info = { connId: `c${this.nextConnId++}`, name };
+			const features: Feature[] = [];
+			if (this.handler.chatSnapshot) features.push("chat");
+			if (this.control) features.push("control");
+			client.chat = msg.chat === true && this.handler.chatSnapshot !== undefined;
+			const sessionName = this.handler.sessionName?.();
 			// Snapshot and write in the same tick, so no change falls in between.
 			this.send(client, {
 				type: "welcome",
 				protocol: PROTOCOL_VERSION,
-				session: this.session,
+				...(this.version !== undefined ? { version: this.version } : {}),
+				features,
+				control: this.control,
+				session: sessionName ? { ...this.session, name: sessionName } : this.session,
 				connId: client.info.connId,
 				items: this.handler.items(),
+				...(client.chat && this.handler.chatSnapshot ? { chat: this.handler.chatSnapshot() } : {}),
 			});
 			return;
 		}
@@ -224,6 +264,15 @@ export class LiveServer {
 				this.handler.answer(id, msg.answer, client.info, (result) =>
 					this.send(client, { type: "answer_result", reqId, id, ...result }),
 				);
+				return;
+			}
+			case "action": {
+				const { reqId } = msg;
+				if (typeof reqId !== "string") return this.error(client, "action needs a string reqId");
+				const reply = (outcome: ActionOutcome) => this.send(client, { type: "action_result", reqId, ...outcome });
+				if (!this.control) return reply({ ok: false, error: CONTROL_OFF });
+				if (!this.handler.action) return reply({ ok: false, error: "pi does not know that action." });
+				this.handler.action(msg, client.info, reply);
 				return;
 			}
 			case "hello":

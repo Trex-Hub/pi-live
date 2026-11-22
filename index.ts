@@ -16,7 +16,15 @@ import {
 	socketPathFor,
 	writeSidecar,
 } from "./src/paths";
-import { CHANNEL_CLOSED, CHANNEL_PARK, CHANNEL_READY, CHANNEL_WHO, type ReadyInfo } from "./src/protocol";
+import {
+	CHANNEL_CLOSED,
+	CHANNEL_PARK,
+	CHANNEL_READY,
+	CHANNEL_WHO,
+	type ReadyInfo,
+	type SessionMode,
+	type ShutdownReason,
+} from "./src/protocol";
 import { Registry } from "./src/registry";
 import { LiveServer } from "./src/server";
 import { loadSettings } from "./src/settings";
@@ -62,10 +70,12 @@ export default function piLive(pi: ExtensionAPI): void {
 
 	async function start(c: ExtensionContext): Promise<void> {
 		if (c.mode !== "tui" && c.mode !== "rpc") return;
+		const mode: SessionMode = c.mode;
 
 		let settings: ReturnType<typeof loadSettings>;
 		try {
-			settings = loadSettings();
+			const cwd = c.sessionManager.getCwd();
+			settings = loadSettings(process.env, undefined, { cwd, trusted: safe(() => c.isProjectTrusted() === true, false) }, log);
 		} catch (error) {
 			log(`${(error as Error).message}; off for this session`);
 			return;
@@ -75,6 +85,7 @@ export default function piLive(pi: ExtensionAPI): void {
 		const sessionId = c.sessionManager.getSessionId();
 		const sessionFile = c.sessionManager.getSessionFile();
 		const cwd = c.sessionManager.getCwd();
+		const terminal = process.env.PI_LIVE_TERMINAL?.trim() || process.env.HC_TERMINAL_ID?.trim() || undefined;
 		const { dir } = settings;
 		const socketPath = socketPathFor(dir, sessionId);
 		const sidecarPath = sidecarPathFor(dir, sessionId);
@@ -103,9 +114,15 @@ export default function piLive(pi: ExtensionAPI): void {
 		try {
 			server = await LiveServer.listen({
 				socketPath,
-				session: { id: sessionId, file: sessionFile, cwd, pid: process.pid },
-				handler: registry,
+				session: { id: sessionId, file: sessionFile, cwd, pid: process.pid, mode, ...(terminal ? { terminal } : {}) },
+				handler: {
+					items: () => registry.items(),
+					answer: (id, answer, from, reply) => registry.answer(id, answer, from, reply),
+					sessionName: () => safe(() => pi.getSessionName() || undefined, undefined),
+				},
 				log,
+				version: PKG_VERSION,
+				control: settings.control,
 			});
 		} catch (error) {
 			const code = (error as NodeJS.ErrnoException).code;
@@ -127,6 +144,9 @@ export default function piLive(pi: ExtensionAPI): void {
 				pid: process.pid,
 				startedAt: new Date().toISOString(),
 				socketPath,
+				mode,
+				...(terminal ? { terminal } : {}),
+				version: PKG_VERSION,
 			});
 			sidecarId = fileId(sidecarPath);
 		} catch (error) {
@@ -164,13 +184,13 @@ export default function piLive(pi: ExtensionAPI): void {
 		pi.events.emit(CHANNEL_READY, ready);
 	}
 
-	function stop(): void {
+	function stop(reason: ShutdownReason | undefined): void {
 		const r = running;
 		if (!r) return;
 		running = undefined;
 		for (const off of r.unsubscribe) off();
 		r.registry.closeAll({ by: "shutdown" });
-		r.server.close();
+		r.server.close(reason);
 		removeIfOurs(r.sidecarPath, r.sidecarId);
 		process.off("exit", r.onExit);
 		pi.events.emit(CHANNEL_CLOSED, { sessionId: r.ready.sessionId });
@@ -182,15 +202,24 @@ export default function piLive(pi: ExtensionAPI): void {
 		await starting;
 	});
 
-	pi.on("session_shutdown", async () => {
+	pi.on("session_shutdown", async (event) => {
 		await starting;
 		starting = undefined;
 		try {
-			stop();
+			stop(event?.reason);
 		} catch (error) {
 			log(`shutdown failed: ${(error as Error).message}`);
 		}
 		ctx = undefined;
 		if (g[GUARD_KEY] === claim) delete g[GUARD_KEY];
 	});
+}
+
+/** `fn()`, or `fallback` if it throws (pi APIs on a stale or partial ctx). */
+function safe<T>(fn: () => T, fallback: T): T {
+	try {
+		return fn();
+	} catch {
+		return fallback;
+	}
 }

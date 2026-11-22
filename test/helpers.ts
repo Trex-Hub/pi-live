@@ -90,9 +90,9 @@ export async function openClient(path: string): Promise<TestClient> {
 }
 
 /** Open a client and say hello; resolves with the welcome. */
-export async function helloClient(path: string, name = "test") {
+export async function helloClient(path: string, name = "test", extra: Record<string, unknown> = {}) {
 	const client = await openClient(path);
-	client.send({ type: "hello", protocol: 1, client: { name } });
+	client.send({ type: "hello", protocol: 1, client: { name }, ...extra });
 	const welcome = await client.next((m) => m.type === "welcome");
 	return { client, welcome };
 }

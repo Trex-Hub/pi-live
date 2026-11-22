@@ -7,6 +7,15 @@ export interface LiveSettings {
 	enabled: boolean;
 	/** Socket and sidecar directory. */
 	dir: string;
+	/** Clients may act on pi (send, stop, set_model, …). */
+	control: boolean;
+}
+
+/** The session's project, for the project control rule. */
+export interface ProjectInfo {
+	cwd: string;
+	/** `ctx.isProjectTrusted()`. An untrusted project's file isn't read. */
+	trusted: boolean;
 }
 
 /** `$PI_CODING_AGENT_DIR` or `~/.pi/agent`, the same rule ask-user.json uses. */
@@ -21,13 +30,27 @@ export function getSettingsPath(env: NodeJS.ProcessEnv = process.env): string {
 	return join(getAgentDir(env), "pi-live.json");
 }
 
+/** `<cwd>/.pi/pi-live.json`. */
+export function getProjectSettingsPath(cwd: string): string {
+	return join(cwd, ".pi", "pi-live.json");
+}
+
 /**
  * Env first, then `<agentDir>/pi-live.json`, then defaults.
  *
  * A missing file is fine. A file that can't be read or isn't valid JSON throws
  * with the path in the message. Wrong-typed keys are ignored.
+ *
+ * `control` has one more source between env and the global file: a trusted
+ * project's `<cwd>/.pi/pi-live.json` can turn it off (`true` there is ignored).
+ * A bad project file is skipped with `warn`.
  */
-export function loadSettings(env: NodeJS.ProcessEnv = process.env, filePath: string = getSettingsPath(env)): LiveSettings {
+export function loadSettings(
+	env: NodeJS.ProcessEnv = process.env,
+	filePath: string = getSettingsPath(env),
+	project?: ProjectInfo,
+	warn: (message: string) => void = () => {},
+): LiveSettings {
 	const file = readSettingsFile(filePath);
 
 	let enabled = true;
@@ -41,7 +64,23 @@ export function loadSettings(env: NodeJS.ProcessEnv = process.env, filePath: str
 	if (envDir) dir = envDir;
 	else if (typeof file.dir === "string" && file.dir.trim()) dir = file.dir.trim();
 
-	return { enabled, dir };
+	let control = true;
+	const envControl = env.PI_LIVE_CONTROL?.trim().toLowerCase();
+	if (envControl === "0" || envControl === "false" || envControl === "off") control = false;
+	else if (envControl === "1" || envControl === "true" || envControl === "on") control = true;
+	else if (project?.trusted && projectControl(project.cwd, warn) === false) control = false;
+	else if (typeof file.control === "boolean") control = file.control;
+
+	return { enabled, dir, control };
+}
+
+function projectControl(cwd: string, warn: (message: string) => void): unknown {
+	try {
+		return readSettingsFile(getProjectSettingsPath(cwd)).control;
+	} catch (error) {
+		warn(`${(error as Error).message}; ignoring it`);
+		return undefined;
+	}
 }
 
 function readSettingsFile(filePath: string): Record<string, unknown> {

@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import type { ParkRequest, ParkTicket, SessionInfo } from "../src/protocol";
+import type { ChatSnapshot, ParkRequest, ParkTicket, SessionInfo } from "../src/protocol";
 import { Registry } from "../src/registry";
-import { LiveServer, MAX_CLIENTS, MAX_LINE_BYTES } from "../src/server";
+import { LiveServer, MAX_CLIENTS, MAX_LINE_BYTES, type ServerHandler } from "../src/server";
 import { helloClient, openClient, tempDir, tick, type TestClient } from "./helpers";
 
 const session: SessionInfo = { id: "s1", file: "/x/s1.jsonl", cwd: "/x", pid: process.pid };
@@ -30,8 +30,8 @@ afterEach(() => {
 	tmp.cleanup();
 });
 
-async function hello(name = "test") {
-	const result = await helloClient(socketPath, name);
+async function hello(name = "test", extra: Record<string, unknown> = {}) {
+	const result = await helloClient(socketPath, name, extra);
 	clients.push(result.client);
 	return result;
 }
@@ -315,5 +315,117 @@ describe("close", () => {
 		expect(await two.next()).toEqual({ type: "goodbye", reason: "session_shutdown" });
 		await one.closed;
 		await two.closed;
+	});
+});
+
+describe("0.2 welcome, chat opt-in, actions, goodbye", () => {
+	const snapshot: ChatSnapshot = {
+		state: {
+			leafId: null,
+			model: null,
+			effort: null,
+			efforts: [],
+			working: false,
+			pending: [],
+			usage: null,
+			name: null,
+			waitingForUser: null,
+		},
+		models: [],
+		commands: [],
+		reply: { blocks: [] },
+		tools: [],
+	};
+	const actions: Array<Record<string, unknown>> = [];
+
+	async function listen(control: boolean, handler: Partial<ServerHandler> = {}) {
+		server.close();
+		actions.length = 0;
+		server = await LiveServer.listen({
+			socketPath,
+			session: { ...session, mode: "rpc", terminal: "t1" },
+			handler: {
+				items: () => registry.items(),
+				answer: (id, answer, from, reply) => registry.answer(id, answer, from, reply),
+				sessionName: () => "my session",
+				chatSnapshot: () => snapshot,
+				action: (action, _from, reply) => {
+					actions.push(action);
+					reply({ ok: true });
+				},
+				...handler,
+			},
+			version: "9.9.9",
+			control,
+		});
+	}
+
+	test("welcome: version, features, control and session mode/terminal/name", async () => {
+		await listen(true);
+		const { welcome } = await hello();
+		expect(welcome).toEqual({
+			type: "welcome",
+			protocol: 1,
+			version: "9.9.9",
+			features: ["chat", "control"],
+			control: true,
+			session: { ...session, mode: "rpc", terminal: "t1", name: "my session" },
+			connId: "c1",
+			items: [],
+		});
+	});
+
+	test("control off: no control feature, every action refused, answer and ping still work", async () => {
+		await listen(false);
+		const { client, welcome } = await hello();
+		expect(welcome).toMatchObject({ features: ["chat"], control: false });
+		client.send({ type: "action", reqId: "a1", op: "stop" });
+		expect(await client.next()).toEqual({ type: "action_result", reqId: "a1", ok: false, error: "Control is off for this pi." });
+		expect(actions).toEqual([]);
+		park("q1");
+		await client.next((m) => m.type === "item_opened");
+		client.send({ type: "answer", reqId: "r1", id: "q1", answer: 1 });
+		expect(await client.next((m) => m.type === "answer_result")).toMatchObject({ status: "delivered" });
+		client.send({ type: "ping", reqId: "p" });
+		await client.next((m) => m.type === "pong");
+	});
+
+	test("control on: the action goes to the handler with its fields", async () => {
+		await listen(true);
+		const { client } = await hello();
+		client.send({ type: "action", reqId: "a1", op: "send", text: "hi" });
+		expect(await client.next()).toEqual({ type: "action_result", reqId: "a1", ok: true });
+		expect(actions).toEqual([{ type: "action", reqId: "a1", op: "send", text: "hi" }]);
+	});
+
+	test("an action without a string reqId gets an error and the connection stays open", async () => {
+		await listen(true);
+		const { client } = await hello();
+		client.send({ type: "action", op: "stop" });
+		expect(await client.next()).toEqual({ type: "error", message: "action needs a string reqId" });
+		client.send({ type: "ping", reqId: "p" });
+		await client.next((m) => m.type === "pong");
+		expect(actions).toEqual([]);
+	});
+
+	test("chat: true gets the snapshot in welcome; others don't", async () => {
+		await listen(true);
+		const { welcome: plain } = await hello("plain");
+		const { welcome: chat } = await hello("chat", { chat: true });
+		expect("chat" in plain).toBe(false);
+		expect(chat.chat).toEqual(snapshot);
+	});
+
+	test("without a chat handler: no chat feature and no snapshot", async () => {
+		await listen(false, { chatSnapshot: undefined });
+		const { welcome } = await hello("chat", { chat: true });
+		expect(welcome.features).toEqual([]);
+		expect("chat" in welcome).toBe(false);
+	});
+
+	test("goodbye carries pi's shutdown reason", async () => {
+		const { client } = await hello();
+		server.close("reload");
+		expect(await client.next()).toEqual({ type: "goodbye", reason: "session_shutdown", shutdown: "reload" });
 	});
 });

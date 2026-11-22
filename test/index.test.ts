@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { createServer } from "node:net";
 import { join } from "node:path";
@@ -100,7 +100,7 @@ beforeEach(() => {
 	dir = join(tmp.dir, "live");
 	process.env.PI_CODING_AGENT_DIR = tmp.dir;
 	process.env.PI_LIVE_DIR = dir;
-	delete process.env.PI_LIVE_ENABLED;
+	for (const key of ["PI_LIVE_ENABLED", "PI_LIVE_CONTROL", "PI_LIVE_TERMINAL", "HC_TERMINAL_ID"]) delete process.env[key];
 	notes.length = 0;
 	events.length = 0;
 	for (const ch of [CHANNEL_READY, CHANNEL_CLOSED]) bus.emitter.on(ch, (d) => events.push([ch, d]));
@@ -167,7 +167,7 @@ describe("lifecycle", () => {
 			socketPath,
 		});
 		const { welcome } = await helloClient(socketPath);
-		expect(welcome.session).toEqual({ id: "s1", file: "/x/s1.jsonl", cwd: "/x", pid: process.pid });
+		expect(welcome.session).toEqual({ id: "s1", file: "/x/s1.jsonl", cwd: "/x", pid: process.pid, mode: "tui" });
 		await s.shutdown();
 	});
 
@@ -192,7 +192,7 @@ describe("lifecycle", () => {
 		await client.next((m) => m.type === "item_opened");
 		await s.shutdown();
 		expect(await client.next()).toEqual({ type: "item_closed", id: "q1", outcome: { by: "shutdown" } });
-		expect(await client.next()).toEqual({ type: "goodbye", reason: "session_shutdown" });
+		expect(await client.next()).toEqual({ type: "goodbye", reason: "session_shutdown", shutdown: "quit" });
 		await client.closed;
 		expect(readdirSync(dir)).toEqual([]);
 		expect(events.at(-1)).toEqual([CHANNEL_CLOSED, { sessionId: "s1" }]);
@@ -337,5 +337,89 @@ describe("files", () => {
 		expect(child.stderr.toString()).toBe("");
 		expect(child.status).toBe(0);
 		expect(readdirSync(dir)).toEqual([]);
+	});
+});
+
+describe("0.2 session fields, goodbye and control", () => {
+	test("sidecar and welcome carry mode, terminal and version", async () => {
+		process.env.HC_TERMINAL_ID = "hc9";
+		const s = await startSession("s1", "rpc");
+		const sidecar = JSON.parse(readFileSync(join(dir, "s1.json"), "utf8"));
+		expect(sidecar).toMatchObject({ mode: "rpc", terminal: "hc9", version: PKG_VERSION });
+		const { client, welcome } = await helloClient(join(dir, "s1.sock"));
+		clients.push(client);
+		expect(welcome).toMatchObject({ version: PKG_VERSION, control: true, session: { mode: "rpc", terminal: "hc9" } });
+		await s.shutdown();
+	});
+
+	test("PI_LIVE_TERMINAL beats HC_TERMINAL_ID; no terminal → omitted", async () => {
+		process.env.HC_TERMINAL_ID = "hc9";
+		process.env.PI_LIVE_TERMINAL = "mine";
+		let s = await startSession("s1");
+		expect(JSON.parse(readFileSync(join(dir, "s1.json"), "utf8")).terminal).toBe("mine");
+		await s.shutdown();
+		delete process.env.HC_TERMINAL_ID;
+		delete process.env.PI_LIVE_TERMINAL;
+		s = await startSession("s1");
+		expect("terminal" in JSON.parse(readFileSync(join(dir, "s1.json"), "utf8"))).toBe(false);
+		await s.shutdown();
+	});
+
+	for (const reason of ["quit", "reload", "new", "resume", "fork"]) {
+		test(`goodbye says shutdown: ${reason}`, async () => {
+			const ext = load();
+			const ctx = ctxFor("s1");
+			await ext.fire("session_start", { reason: "startup" }, ctx);
+			const { client } = await helloClient(join(dir, "s1.sock"));
+			clients.push(client);
+			await ext.fire("session_shutdown", { reason }, ctx);
+			expect(await client.next()).toEqual({ type: "goodbye", reason: "session_shutdown", shutdown: reason });
+		});
+	}
+
+	test("/reload keeps the session id: the old sidecar is gone before the new one is written", async () => {
+		const ext = load();
+		const ctx = ctxFor("s1");
+		await ext.fire("session_start", { reason: "startup" }, ctx);
+		const sidecarPath = join(dir, "s1.json");
+		const first = JSON.parse(readFileSync(sidecarPath, "utf8")).startedAt;
+		await ext.fire("session_shutdown", { reason: "reload" }, ctx);
+		expect(existsSync(sidecarPath)).toBe(false);
+		expect(existsSync(join(dir, "s1.sock"))).toBe(false);
+		await new Promise((r) => setTimeout(r, 5)); // a distinct startedAt
+		const next = load();
+		await next.fire("session_start", { reason: "reload" }, ctx);
+		expect(JSON.parse(readFileSync(sidecarPath, "utf8")).startedAt).not.toBe(first);
+		const { client } = await helloClient(join(dir, "s1.sock"));
+		clients.push(client);
+		await next.fire("session_shutdown", { reason: "quit" }, ctx);
+	});
+
+	test("a trusted project's { control: false } turns control off; untrusted is ignored", async () => {
+		const cwd = join(tmp.dir, "proj");
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		writeFileSync(join(cwd, ".pi", "pi-live.json"), JSON.stringify({ control: false }));
+		for (const trusted of [true, false]) {
+			const ext = load();
+			const ctx = { ...ctxFor("s1"), isProjectTrusted: () => trusted };
+			ctx.sessionManager.getCwd = () => cwd;
+			await ext.fire("session_start", { reason: "startup" }, ctx);
+			const { client, welcome } = await helloClient(join(dir, "s1.sock"));
+			clients.push(client);
+			expect(welcome.control).toBe(!trusted);
+			await ext.fire("session_shutdown", { reason: "quit" }, ctx);
+		}
+	});
+
+	test("PI_LIVE_CONTROL=0: actions refused", async () => {
+		process.env.PI_LIVE_CONTROL = "0";
+		const s = await startSession("s1");
+		const { client, welcome } = await helloClient(join(dir, "s1.sock"));
+		clients.push(client);
+		expect(welcome).toMatchObject({ control: false });
+		expect(welcome.features).not.toContain("control");
+		client.send({ type: "action", reqId: "a1", op: "stop" });
+		expect(await client.next()).toEqual({ type: "action_result", reqId: "a1", ok: false, error: "Control is off for this pi." });
+		await s.shutdown();
 	});
 });
