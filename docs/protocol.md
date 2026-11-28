@@ -304,6 +304,7 @@ A chat client's `welcome` carries the whole current picture:
 - Blank text blocks are dropped. Images alone are fine, with no text.
 - Check `input` on `state.model` or the `models` entry first: a model whose `input` lacks `"image"` can't read images. `input` only lists `"text"` and `"image"`, and is `["text"]` if the model says nothing usable.
 - There is no limit on image size beyond the 1 MiB line limit for the whole message, base64 included (see [Limits](#limits)). A longer line closes the connection.
+- pi decodes images and may resize them before the model sees them. An image pi can't decode, or can't shrink under its inline size limit, is replaced by a text note, `[Image omitted: …]`. pi-live only checks the base64 text, so `ok: true` doesn't mean the image was usable.
 - **Order:** pi doesn't keep the order of text and images. It joins all text blocks with a newline into one text, and puts all images after it, in the order given. A client that needs to point at an image writes labels such as "[image 1]" into its own text.
 - An images-only `send` leaves an empty text block ahead of the images in pi's stored message. Anthropic and OpenAI-style providers drop it.
 
@@ -335,7 +336,7 @@ The settings file is `<agent dir>/pi-live.json`. For control, the first match wi
 
 | Limit | Value |
 |---|---|
-| Line length from clients | 1 MiB (a longer line, such as a `send` with more than 1 MiB of text or image data, closes the connection) |
+| Line length from clients | 1 MiB (a longer line, such as a `send` with more than 1 MiB of text or image data, closes the connection, and no `action_result` comes back) |
 | Line length to clients | None. A `reply` or `welcome` line can be large. |
 | Connections per session, including ones that haven't sent `hello` | 32 |
 | Time to send `hello` | 5 seconds |
