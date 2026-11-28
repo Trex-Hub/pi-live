@@ -305,7 +305,7 @@ A chat client's `welcome` carries the whole current picture:
 - Check `input` on `state.model` or the `models` entry first: a model whose `input` lacks `"image"` can't read images. `input` only lists `"text"` and `"image"`, and is `["text"]` if the model says nothing usable.
 - There is no limit on image size beyond the 1 MiB line limit for the whole message, base64 included (see [Limits](#limits)). A longer line closes the connection.
 - **Order:** pi doesn't keep the order of text and images. It joins all text blocks with a newline into one text, and puts all images after it, in the order given. A client that needs to point at an image writes labels such as "[image 1]" into its own text.
-- An images-only `send` leaves an empty text block ahead of the images in pi's stored message. Providers ignore it.
+- An images-only `send` leaves an empty text block ahead of the images in pi's stored message. Anthropic and OpenAI-style providers drop it.
 
 Refusals:
 
