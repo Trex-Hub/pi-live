@@ -238,7 +238,7 @@ export interface ChatModelRef {
 	id: string;
 	name: string;
 	reasoning: boolean;
-	/** Since 0.3. What the model takes in. Always has "text". */
+	/** Since 0.3. Only "text" and "image" are listed; ["text"] if the model says nothing usable. */
 	input: ("text" | "image")[];
 }
 

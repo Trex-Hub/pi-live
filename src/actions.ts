@@ -2,7 +2,7 @@
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { efforts } from "./chat";
-import type { ActionOutcome } from "./protocol";
+import type { ActionOutcome, SendBlock } from "./protocol";
 
 /** pi's own slash commands. `send` refuses them: they act on pi's terminal, not on the agent. */
 export const BUILTIN_COMMANDS = [
@@ -34,6 +34,33 @@ export const BUILTIN_COMMANDS = [
 	"/quit",
 ];
 
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/** Check a `send`'s `content` and drop blank text blocks. Throws a sentence for the first bad block. */
+function cleanBlocks(content: unknown): SendBlock[] {
+	if (!Array.isArray(content)) throw new Error("content must be a list of blocks.");
+	const blocks: SendBlock[] = [];
+	for (const block of content as unknown[]) {
+		const b = (typeof block === "object" && block !== null ? block : {}) as Record<string, unknown>;
+		if (b.type === "text") {
+			if (typeof b.text !== "string") throw new Error("A text block needs text.");
+			if (b.text.trim() !== "") blocks.push({ type: "text", text: b.text });
+		} else if (b.type === "image") {
+			if (typeof b.mimeType !== "string" || !IMAGE_TYPES.includes(b.mimeType)) {
+				throw new Error(
+					`pi can't take images of type “${String(b.mimeType)}”. Use image/png, image/jpeg, image/gif or image/webp.`,
+				);
+			}
+			if (typeof b.data !== "string" || !BASE64.test(b.data)) throw new Error("An image block needs base64 data.");
+			blocks.push({ type: "image", data: b.data, mimeType: b.mimeType as Extract<SendBlock, { type: "image" }>["mimeType"] });
+		} else {
+			throw new Error(`pi can't send a “${String(b.type)}” block. Use text or image.`);
+		}
+	}
+	return blocks;
+}
+
 export type ActionPi = Pick<ExtensionAPI, "sendUserMessage" | "setModel" | "setThinkingLevel" | "setSessionName">;
 
 export interface ActionContext {
@@ -59,9 +86,19 @@ async function perform(action: Record<string, unknown>, { pi, ctx, changed }: Ac
 	if (!c) throw new Error("pi has no session yet.");
 	switch (action.op) {
 		case "send": {
-			const { text, deliverAs } = action;
-			if (typeof text !== "string" || text.trim() === "") throw new Error("There is nothing to send.");
-			const first = text.trim().split(/\s+/)[0] ?? "";
+			const { text, content, deliverAs } = action;
+			if (text !== undefined && content !== undefined) throw new Error("Send either text or content, not both.");
+			let message: string | SendBlock[];
+			let seen: string;
+			if (content !== undefined) {
+				message = cleanBlocks(content);
+				seen = message.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("\n");
+				if (message.length === 0) throw new Error("There is nothing to send.");
+			} else {
+				if (typeof text !== "string" || text.trim() === "") throw new Error("There is nothing to send.");
+				message = seen = text;
+			}
+			const first = seen.trim().split(/\s+/)[0] ?? "";
 			if (BUILTIN_COMMANDS.includes(first)) {
 				throw new Error(`pi-live can't run ${first}. Use the matching action, or type it in pi's terminal.`);
 			}
@@ -71,7 +108,7 @@ async function perform(action: Record<string, unknown>, { pi, ctx, changed }: Ac
 			// While the agent works a message must say how it is delivered; Enter in pi's own box means steer.
 			const as: "steer" | "followUp" = deliverAs ?? "steer";
 			const options = c.isIdle() ? {} : { deliverAs: as };
-			pi.sendUserMessage(text, { expandPromptTemplates: true, ...options });
+			pi.sendUserMessage(message, { expandPromptTemplates: true, ...options });
 			return;
 		}
 		case "stop":

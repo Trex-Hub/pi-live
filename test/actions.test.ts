@@ -76,6 +76,114 @@ describe("send", () => {
 		// Not built-ins: extension commands, prompt templates, a slash later in the text.
 		for (const text of ["/newsletter", "/review", "use /new later"]) expect(await run({ op: "send", text })).toEqual({ ok: true });
 	});
+
+	describe("content", () => {
+		const png = { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" };
+		const jpg = { type: "image", data: "/9j/4AAQ", mimeType: "image/jpeg" };
+		const opts = { expandPromptTemplates: true };
+
+		test("blocks go to pi in the order given", async () => {
+			const { run, calls } = setup();
+			expect(await run({ op: "send", content: [{ type: "text", text: "a" }, png, { type: "text", text: "b" }, jpg] })).toEqual({ ok: true });
+			expect(calls).toEqual([["sendUserMessage", [{ type: "text", text: "a" }, png, { type: "text", text: "b" }, jpg], opts]]);
+		});
+
+		test("images only, and text with an image", async () => {
+			const { run, calls } = setup();
+			expect(await run({ op: "send", content: [png] })).toEqual({ ok: true });
+			expect(await run({ op: "send", content: [{ type: "text", text: "what is this?" }, png] })).toEqual({ ok: true });
+			expect(calls).toEqual([
+				["sendUserMessage", [png], opts],
+				["sendUserMessage", [{ type: "text", text: "what is this?" }, png], opts],
+			]);
+		});
+
+		test("blank text blocks are dropped, extra keys are not passed on", async () => {
+			const { run, calls } = setup();
+			await run({ op: "send", content: [{ type: "text", text: "  \n" }, { ...png, extra: 1 }, { type: "text", text: "" }] });
+			expect(calls).toEqual([["sendUserMessage", [png], opts]]);
+		});
+
+		test("all gif and webp types are taken", async () => {
+			const { run } = setup();
+			for (const mimeType of ["image/gif", "image/webp"]) expect(await run({ op: "send", content: [{ ...png, mimeType }] })).toEqual({ ok: true });
+		});
+
+		test("text alone is unchanged", async () => {
+			const { run, calls } = setup();
+			await run({ op: "send", text: "hi" });
+			expect(calls).toEqual([["sendUserMessage", "hi", opts]]);
+		});
+
+		test("text and content together are refused", async () => {
+			const { run, calls } = setup();
+			expect(await run({ op: "send", text: "hi", content: [png] })).toEqual(refused("Send either text or content, not both."));
+			expect(await run({ op: "send", text: "", content: [] })).toEqual(refused("Send either text or content, not both."));
+			expect(calls).toEqual([]);
+		});
+
+		test("content that is not a list is refused", async () => {
+			const { run } = setup();
+			for (const content of ["hi", 5, null, { type: "text", text: "x" }]) {
+				expect(await run({ op: "send", content })).toEqual(refused("content must be a list of blocks."));
+			}
+		});
+
+		test("bad blocks are refused with a sentence", async () => {
+			const { run, calls } = setup();
+			expect(await run({ op: "send", content: [{ type: "audio" }] })).toEqual(refused("pi can't send a “audio” block. Use text or image."));
+			expect(await run({ op: "send", content: ["x"] })).toEqual(refused("pi can't send a “undefined” block. Use text or image."));
+			expect(await run({ op: "send", content: [{ type: "text" }] })).toEqual(refused("A text block needs text."));
+			expect(await run({ op: "send", content: [{ type: "text", text: 5 }] })).toEqual(refused("A text block needs text."));
+			expect(await run({ op: "send", content: [{ ...png, mimeType: "image/bmp" }] })).toEqual(
+				refused("pi can't take images of type “image/bmp”. Use image/png, image/jpeg, image/gif or image/webp."),
+			);
+			expect(await run({ op: "send", content: [{ type: "image", data: "AAAA" }] })).toEqual(
+				refused("pi can't take images of type “undefined”. Use image/png, image/jpeg, image/gif or image/webp."),
+			);
+			for (const data of [undefined, 5, "", "data:image/png;base64,AAAA", "AA AA", "AAAA\n", "A===", "=AAA"]) {
+				expect(await run({ op: "send", content: [{ ...png, data }] })).toEqual(refused("An image block needs base64 data."));
+			}
+			expect(calls).toEqual([]);
+		});
+
+		test("nothing to send: empty list, or only blank text", async () => {
+			const { run, calls } = setup();
+			expect(await run({ op: "send", content: [] })).toEqual(refused("There is nothing to send."));
+			expect(await run({ op: "send", content: [{ type: "text", text: " " }] })).toEqual(refused("There is nothing to send."));
+			expect(calls).toEqual([]);
+		});
+
+		test("built-ins are still refused, on the text pi will see", async () => {
+			const { run, calls } = setup();
+			const refusal = refused("pi-live can't run /new. Use the matching action, or type it in pi's terminal.");
+			expect(await run({ op: "send", content: [{ type: "text", text: "/new" }, png] })).toEqual(refusal);
+			expect(await run({ op: "send", content: [png, { type: "text", text: "  /new now" }] })).toEqual(refusal);
+			expect(await run({ op: "send", content: [{ type: "text", text: " " }, { type: "text", text: "/new" }] })).toEqual(refusal);
+			expect(calls).toEqual([]);
+			expect(await run({ op: "send", content: [{ type: "text", text: "see /new" }, png] })).toEqual({ ok: true });
+		});
+
+		test("working: steer by default, followUp if asked, with content", async () => {
+			const { run, calls } = setup({ idle: false });
+			await run({ op: "send", content: [png] });
+			await run({ op: "send", content: [{ type: "text", text: "a" }, png], deliverAs: "followUp" });
+			expect(await run({ op: "send", content: [png], deliverAs: "now" })).toEqual(
+				refused("pi can't deliver a message as “now”. Use steer or followUp."),
+			);
+			expect(calls).toEqual([
+				["sendUserMessage", [png], { ...opts, deliverAs: "steer" }],
+				["sendUserMessage", [{ type: "text", text: "a" }, png], { ...opts, deliverAs: "followUp" }],
+			]);
+		});
+
+		test("a large image goes through", async () => {
+			const { run, calls } = setup();
+			const data = "A".repeat(400_000);
+			expect(await run({ op: "send", content: [{ ...png, data }] })).toEqual({ ok: true });
+			expect(calls).toEqual([["sendUserMessage", [{ ...png, data }], opts]]);
+		});
+	});
 });
 
 test("stop aborts", async () => {
