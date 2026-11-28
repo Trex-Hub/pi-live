@@ -6,7 +6,7 @@ A pi session normally lives in one terminal: you watch it there, type there, and
 
 - **Answer waits.** Anything the session is waiting on, such as a question, an approval or a plan review, can be answered from a client. The terminal prompt still shows, and the first valid answer wins.
 - **Follow the chat.** Clients see the reply as it streams, tools as they run, the model and context use, and when to re-read the session file.
-- **Control the session.** With control on, clients can send a prompt, steer or stop a run, switch the model or effort, and rename or compact the session.
+- **Control the session.** With control on, clients can send a prompt (with images), steer or stop a run, switch the model or effort, and rename or compact the session.
 
 Any extension or tool that pauses for a human can *park* its wait with pi-live. pi-live never needs to understand the prompt. It relays three things:
 
@@ -106,7 +106,7 @@ Watch one session. The first line lists the open items, and each later line is a
 
 ```bash
 $ bun bin/pi-live.ts watch 01a1feea-1468-750a-96d6-bf2777e60575
-{"type":"welcome","protocol":1,"version":"0.2.0","features":["chat","control"],"control":true,"session":{...},"connId":"c1","items":[]}
+{"type":"welcome","protocol":1,"version":"0.3.0","features":["chat","control","images"],"control":true,"session":{...},"connId":"c1","items":[]}
 {"type":"item_opened","item":{"id":"call_1","owner":"ask_user","kind":"ask_user.question","title":"Which color?","view":{...},"openedAt":1795278085572}}
 ```
 
@@ -186,7 +186,7 @@ The socket speaks newline-delimited JSON. Send `hello` first, then read `welcome
 
 ```jsonc
 → {"type":"hello","protocol":1,"client":{"name":"my-client"}}
-← {"type":"welcome","protocol":1,"version":"0.2.0","features":["chat","control"],"control":true,"session":{"id":"…","cwd":"…","pid":1234,"mode":"tui"},"connId":"c1","items":[]}
+← {"type":"welcome","protocol":1,"version":"0.3.0","features":["chat","control","images"],"control":true,"session":{"id":"…","cwd":"…","pid":1234,"mode":"tui"},"connId":"c1","items":[]}
 ← {"type":"item_opened","item":{"id":"call_1","kind":"…","title":"…","view":{…},"openedAt":1795278085572}}
 → {"type":"answer","reqId":"r1","id":"call_1","answer":{…}}
 ← {"type":"answer_result","reqId":"r1","id":"call_1","status":"delivered"}
@@ -195,11 +195,11 @@ The socket speaks newline-delimited JSON. Send `hello` first, then read `welcome
 
 To find sessions, read the `<session id>.json` files in the socket directory. Each one gives the socket path, process id, working directory, mode (`tui` or `rpc`) and, if set, the terminal of a session.
 
-Add `"chat": true` to `hello` to also get the session's chat: a snapshot in `welcome.chat`, then `state`, `reply`, `tool`, `entries` and other messages as they happen. Send `action` messages to act on pi. Check `welcome.features` for `"chat"` and `"control"` first:
+Add `"chat": true` to `hello` to also get the session's chat: a snapshot in `welcome.chat`, then `state`, `reply`, `tool`, `entries` and other messages as they happen. Send `action` messages to act on pi. Check `welcome.features` for `"chat"`, `"control"` and `"images"` first:
 
 ```jsonc
 → {"type":"hello","protocol":1,"client":{"name":"my-client"},"chat":true}
-← {"type":"welcome","protocol":1,"version":"0.2.0","features":["chat","control"],"control":true,"session":{…},"connId":"c1","items":[],"chat":{"state":{…},"models":[…],"commands":[…],"reply":{"blocks":[]},"tools":[]}}
+← {"type":"welcome","protocol":1,"version":"0.3.0","features":["chat","control","images"],"control":true,"session":{…},"connId":"c1","items":[],"chat":{"state":{…},"models":[…],"commands":[…],"reply":{"blocks":[]},"tools":[]}}
 → {"type":"action","reqId":"a1","op":"send","text":"run the tests"}
 ← {"type":"action_result","reqId":"a1","ok":true}
 ← {"type":"state","working":true,…}

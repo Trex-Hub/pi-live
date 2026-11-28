@@ -1,8 +1,8 @@
 # pi-live protocol reference
 
-This document describes protocol version 1, as spoken by pi-live 0.2: the event-bus API used by extensions inside pi, the socket protocol used by clients outside pi, and the files pi-live writes. TypeScript types for everything here are in [src/protocol.ts](../src/protocol.ts).
+This document describes protocol version 1, as spoken by pi-live 0.3: the event-bus API used by extensions inside pi, the socket protocol used by clients outside pi, and the files pi-live writes. TypeScript types for everything here are in [src/protocol.ts](../src/protocol.ts).
 
-pi-live 0.2 added chat and control without changing the protocol version. Every addition is a new field or a new message type, marked *since 0.2*. **Clients must ignore message types and fields they don't know.** To tell what a pi-live can do, use `welcome.features`, not `version`.
+pi-live 0.2 added chat and control, and 0.3 added images in `send`, without changing the protocol version. Every addition is a new field or a new message type, marked *since 0.2* or *since 0.3*. **Clients must ignore message types and fields they don't know.** To tell what a pi-live can do, use `welcome.features`, not `version`.
 
 - [Terms](#terms)
 - [Event bus API](#event-bus-api)
@@ -115,7 +115,7 @@ Each socket has a session file at `<dir>/<session id>.json`, even when the socke
 	"socketPath": "/home/me/.pi/agent/live/01a1feea-1468-750a-96d6-bf2777e60575.sock",
 	"mode": "tui",
 	"terminal": "t17",
-	"version": "0.2.0"
+	"version": "0.3.0"
 }
 ```
 
@@ -157,8 +157,8 @@ Messages are JSON objects, one per line, UTF-8, each ending in `\n`. Unknown fie
 ```jsonc
 // Reply to hello: the session and every open item, oldest first
 { "type": "welcome", "protocol": 1,
-  "version": "0.2.0",                 // since 0.2: pi-live's package version
-  "features": ["chat", "control"],    // since 0.2: "control" only when control is on
+  "version": "0.3.0",                 // since 0.2: pi-live's package version
+  "features": ["chat", "control", "images"],  // since 0.2: "control" and "images" (since 0.3) only when control is on
   "control": true,                    // since 0.2
   "session": { "id": "…", "file": "…", "cwd": "…", "pid": 74194,
                "mode": "tui", "terminal": "t17", "name": "my session" },  // mode, terminal, name since 0.2
@@ -186,7 +186,7 @@ Messages are JSON objects, one per line, UTF-8, each ending in `\n`. Unknown fie
 
 `goodbye.shutdown` (*since 0.2*) is why the session ended: `"quit"`, `"reload"`, `"new"`, `"resume"` or `"fork"`. Anything but `quit` means the same pi process is about to open a new socket, so a client can look for it. A crash sends no goodbye; treat a close without one as `quit`.
 
-A client that needs chat and gets a `welcome` without `"chat"` in `features` (or without `features`) is talking to an older pi-live.
+A client that needs chat and gets a `welcome` without `"chat"` in `features` (or without `features`) is talking to an older pi-live. The same goes for `"images"` and sending images: an older pi-live ignores `content` in `send` and would send nothing.
 
 ### Answer statuses
 
@@ -236,7 +236,7 @@ A chat client's `welcome` carries the whole current picture:
 ```jsonc
 { "type": "state",
   "leafId": "…",                              // the session tree's current leaf, or null
-  "model": { "provider": "anthropic", "id": "…", "name": "…", "reasoning": true },  // or null
+  "model": { "provider": "anthropic", "id": "…", "name": "…", "reasoning": true, "input": ["text", "image"] },  // or null; input since 0.3
   "effort": "high",                           // thinking level, or null
   "efforts": ["off", "minimal", "low", "medium", "high"],  // levels this model takes
   "working": true,                            // the agent is running
@@ -244,7 +244,7 @@ A chat client's `welcome` carries the whole current picture:
   "usage": { "tokens": 12000, "window": 200000, "percent": 6 },  // or null; tokens and percent may be null
   "name": "my session",                       // or null
   "waitingForUser": { "kind": "confirm", "title": "…" } }  // a pi dialog is open, or null
-{ "type": "models", "list": [ { "provider": "…", "id": "…", "name": "…", "reasoning": true, "efforts": ["off", "…"] } ] }
+{ "type": "models", "list": [ { "provider": "…", "id": "…", "name": "…", "reasoning": true, "input": ["text", "image"], "efforts": ["off", "…"] } ] }
 { "type": "commands", "list": [ { "name": "review", "description": "…", "source": "prompt" } ] }
 { "type": "reply", "blocks": [ { "kind": "thinking", "text": "…" }, { "kind": "text", "text": "…" } ] }
 { "type": "tool", "phase": "start", "callId": "…", "name": "bash", "argument": "bun test" }
@@ -281,7 +281,7 @@ A chat client's `welcome` carries the whole current picture:
 
 | `op` | Fields | Does |
 |---|---|---|
-| `send` | `text`, `deliverAs?` | Sends `text` to the agent, with prompt templates and extension commands expanded. While the agent works, it's delivered as `deliverAs`: `"steer"` (the default) or `"followUp"`. When idle, it starts a run. `ok` means it was handed to pi; pi reports its own errors. |
+| `send` | `text` or `content` (*since 0.3*), `deliverAs?` | Sends `text`, or the blocks in `content`, to the agent, with prompt templates and extension commands expanded. Send one of the two, not both. While the agent works, it's delivered as `deliverAs`: `"steer"` (the default) or `"followUp"`. When idle, it starts a run. `ok` means it was handed to pi; pi reports its own errors. |
 | `stop` | | Aborts the current run. |
 | `set_model` | `model`: `"provider/id"` | Switches the model. |
 | `set_effort` | `effort` | Sets the thinking level. It must be one of `state.efforts`. |
@@ -289,11 +289,30 @@ A chat client's `welcome` carries the whole current picture:
 | `compact` | `instructions?` | Compacts the session. A failure arrives later as a `notice`. |
 | `clear_input` | | Empties pi's input box. Without a terminal UI (RPC mode), it does nothing and still returns `ok`. |
 
+### Sending images
+
+*Since 0.3, only when `welcome.features` has `"images"`.* `send` takes `content`, a list of blocks, instead of `text`:
+
+```jsonc
+→ { "type": "action", "reqId": "a3", "op": "send", "content": [
+    { "type": "text", "text": "What is in [image 1]?" },
+    { "type": "image", "data": "<base64, no data: prefix>", "mimeType": "image/png" } ] }
+← { "type": "action_result", "reqId": "a3", "ok": true }
+```
+
+- A text block is `{ "type": "text", "text": "…" }`. An image block is `{ "type": "image", "data": "…", "mimeType": "…" }`, with `data` as base64 without a `data:` prefix and `mimeType` one of `image/png`, `image/jpeg`, `image/gif` or `image/webp`.
+- Blank text blocks are dropped. Images alone are fine, with no text.
+- Check `input` on `state.model` or the `models` entry first: a model whose `input` lacks `"image"` can't read images. `input` only lists `"text"` and `"image"`, and is `["text"]` if the model says nothing usable.
+- There is no limit on image size beyond the 1 MiB line limit for the whole message, base64 included (see [Limits](#limits)). A longer line closes the connection.
+- **Order:** pi doesn't keep the order of text and images. It joins all text blocks with a newline into one text, and puts all images after it, in the order given. A client that needs to point at an image writes labels such as "[image 1]" into its own text.
+- An images-only `send` leaves an empty text block ahead of the images in pi's stored message. Providers ignore it.
+
 Refusals:
 
 - Control is off: every action gets `"Control is off for this pi."`. `answer` and `ping` still work.
 - `send` whose first word is one of pi's own commands (`/settings /model /thinking /scoped-models /login /logout /llama /new /resume /name /session /tree /fork /clone /compact /import /copy /export /share /bug /trust /mcp /reload /hotkeys /changelog /quit`): "pi-live can't run /new. Use the matching action, or type it in pi's terminal."
-- Empty `send` text, empty `name`, an unknown model, a model with no API key set up, an effort the model doesn't take, an unknown `op`: `ok: false` with a sentence saying so.
+- `send` with both `text` and `content`: "Send either text or content, not both." A `content` that is not a list: "content must be a list of blocks." A block that is not text or an image: "pi can't send a “audio” block. Use text or image." A text block without text: "A text block needs text." An image of another type: "pi can't take images of type “image/bmp”. Use image/png, image/jpeg, image/gif or image/webp." An image without base64 `data`: "An image block needs base64 data."
+- Empty `send` text or `content` with nothing but blank text, empty `name`, an unknown model, a model with no API key set up, an effort the model doesn't take, an unknown `op`: `ok: false` with a sentence saying so.
 
 ## Settings
 
@@ -316,7 +335,7 @@ The settings file is `<agent dir>/pi-live.json`. For control, the first match wi
 
 | Limit | Value |
 |---|---|
-| Line length from clients | 1 MiB (a longer line, such as a `send` with more than 1 MiB of text, closes the connection) |
+| Line length from clients | 1 MiB (a longer line, such as a `send` with more than 1 MiB of text or image data, closes the connection) |
 | Line length to clients | None. A `reply` or `welcome` line can be large. |
 | Connections per session, including ones that haven't sent `hello` | 32 |
 | Time to send `hello` | 5 seconds |
