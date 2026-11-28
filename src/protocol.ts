@@ -150,8 +150,15 @@ export interface PingMessage {
 /** Since 0.2. Act on pi. Refused unless control is on. */
 export type ActionMessage = { type: "action"; reqId: string } & Action;
 
+/** Since 0.3. A piece of a `send`, shaped like pi's own content blocks. */
+export type SendBlock =
+	| { type: "text"; text: string }
+	/** `data` is base64 without a `data:` prefix. */
+	| { type: "image"; data: string; mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp" };
+
 export type Action =
-	| { op: "send"; text: string; deliverAs?: "steer" | "followUp" }
+	/** Send `text`, or since 0.3 `content` (not both). */
+	| { op: "send"; text?: string; content?: SendBlock[]; deliverAs?: "steer" | "followUp" }
 	| { op: "stop" }
 	| { op: "set_model"; model: string }
 	| { op: "set_effort"; effort: string }
@@ -163,7 +170,7 @@ export type ClientMessage = HelloMessage | AnswerMessage | PingMessage | ActionM
 
 // pi-live → client
 
-export type Feature = "chat" | "control";
+export type Feature = "chat" | "control" | "images";
 
 export interface WelcomeMessage {
 	type: "welcome";
@@ -231,6 +238,8 @@ export interface ChatModelRef {
 	id: string;
 	name: string;
 	reasoning: boolean;
+	/** Since 0.3. What the model takes in. Always has "text". */
+	input: ("text" | "image")[];
 }
 
 export interface ChatModel extends ChatModelRef {

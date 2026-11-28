@@ -45,7 +45,7 @@ export type ChatPi = Pick<ExtensionAPI, "getThinkingLevel" | "getSessionName" | 
 
 // Hook payloads are read defensively; pi may send partial events.
 type Loose = Record<string, any>;
-type ModelLike = { provider: string; id: string; name?: string; reasoning?: boolean; thinkingLevelMap?: Record<string, unknown> };
+type ModelLike = { provider: string; id: string; name?: string; reasoning?: boolean; input?: unknown; thinkingLevelMap?: Record<string, unknown> };
 
 export class Chat {
 	private ctx: ExtensionContext;
@@ -96,7 +96,7 @@ export class Chat {
 		const ctxEffort = safe(() => c.thinkingLevel ?? null, null);
 		return {
 			leafId: this.leafId(),
-			model: model ? { provider: model.provider, id: model.id, name: model.name ?? model.id, reasoning: model.reasoning === true } : null,
+			model: model ? { provider: model.provider, id: model.id, name: model.name ?? model.id, reasoning: model.reasoning === true, input: inputs(model) } : null,
 			effort: safe(() => this.pi.getThinkingLevel() ?? ctxEffort, ctxEffort),
 			efforts: efforts(model),
 			working: this.working,
@@ -287,6 +287,7 @@ export class Chat {
 				id: m.id,
 				name: m.name ?? m.id,
 				reasoning: m.reasoning === true,
+				input: inputs(m),
 				efforts: efforts(m),
 			}));
 		}, []);
@@ -303,6 +304,12 @@ export class Chat {
 			[],
 		);
 	}
+}
+
+/** What a model takes in, keeping only "text" and "image"; ["text"] if it says nothing usable. */
+export function inputs(model: ModelLike): ("text" | "image")[] {
+	const list = Array.isArray(model.input) ? model.input.filter((i): i is "text" | "image" => i === "text" || i === "image") : [];
+	return list.length > 0 ? list : ["text"];
 }
 
 /** Effort levels a model takes: none without a model, "off" only if it doesn't reason. */

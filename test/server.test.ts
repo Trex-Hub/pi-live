@@ -367,7 +367,7 @@ describe("0.2 welcome, chat opt-in, actions, goodbye", () => {
 			type: "welcome",
 			protocol: 1,
 			version: "9.9.9",
-			features: ["chat", "control"],
+			features: ["chat", "control", "images"],
 			control: true,
 			session: { ...session, mode: "rpc", terminal: "t1", name: "my session" },
 			connId: "c1",
@@ -379,6 +379,7 @@ describe("0.2 welcome, chat opt-in, actions, goodbye", () => {
 		await listen(false);
 		const { client, welcome } = await hello();
 		expect(welcome).toMatchObject({ features: ["chat"], control: false });
+		expect(welcome.features).not.toContain("images");
 		client.send({ type: "action", reqId: "a1", op: "stop" });
 		expect(await client.next()).toEqual({ type: "action_result", reqId: "a1", ok: false, error: "Control is off for this pi." });
 		expect(actions).toEqual([]);

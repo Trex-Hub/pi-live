@@ -18,7 +18,7 @@ interface State {
 	available: FakeModel[];
 	commands: unknown[];
 }
-type FakeModel = { provider: string; id: string; name?: string; reasoning?: boolean; thinkingLevelMap?: Record<string, unknown> };
+type FakeModel = { provider: string; id: string; name?: string; reasoning?: boolean; input?: unknown; thinkingLevelMap?: Record<string, unknown> };
 
 /** A fake pi + ctx whose values the test can change, and a Chat that records what it sends. */
 function setup(init: (s: State) => void = () => {}) {
@@ -83,7 +83,7 @@ describe("state", () => {
 		expect(of("state")[0]).toEqual({
 			type: "state",
 			leafId: "L7",
-			model: { provider: "p", id: "m", name: "m", reasoning: true },
+			model: { provider: "p", id: "m", name: "m", reasoning: true, input: ["text"] },
 			effort: "high",
 			efforts: ["off", "minimal", "low", "medium", "high"],
 			working: true,
@@ -149,16 +149,29 @@ describe("efforts and models", () => {
 
 	test("models: scoped if set, else available; name falls back to id; capped", () => {
 		const a = setup();
-		expect(a.chat.snapshot().models).toEqual([{ provider: "p", id: "m1", name: "m1", reasoning: false, efforts: ["off"] }]);
+		expect(a.chat.snapshot().models).toEqual([{ provider: "p", id: "m1", name: "m1", reasoning: false, input: ["text"], efforts: ["off"] }]);
 		const many = Array.from({ length: MAX_MODELS + 5 }, (_, i) => ({ provider: "p", id: `m${i}` }));
 		const scoped = setup((s) => {
 			s.scoped = [{ model: { provider: "q", id: "s", name: "Scoped", reasoning: true } }];
 			s.available = many;
 		});
 		expect(scoped.chat.snapshot().models).toEqual([
-			{ provider: "q", id: "s", name: "Scoped", reasoning: true, efforts: ["off", "minimal", "low", "medium", "high"] },
+			{ provider: "q", id: "s", name: "Scoped", reasoning: true, input: ["text"], efforts: ["off", "minimal", "low", "medium", "high"] },
 		]);
 		expect(setup((s) => (s.available = many)).chat.snapshot().models).toHaveLength(MAX_MODELS);
+	});
+
+	test("input: from the model, only text and image kept, [\"text\"] when missing or unusable", () => {
+		const vision = { provider: "p", id: "v", input: ["text", "image"] };
+		const odd = { provider: "p", id: "o", input: ["audio", "image", 3] };
+		const none = { provider: "p", id: "n", input: [] };
+		const bad = { provider: "p", id: "b", input: "image" };
+		const a = setup((s) => (s.available = [vision, odd, none, bad, { provider: "p", id: "x" }]));
+		expect(a.chat.snapshot().models.map((m) => m.input)).toEqual([["text", "image"], ["image"], ["text"], ["text"], ["text"]]);
+		const b = setup((s) => (s.model = vision));
+		expect(b.chat.state().model?.input).toEqual(["text", "image"]);
+		const c = setup((s) => (s.model = odd));
+		expect(c.chat.state().model?.input).toEqual(["image"]);
 	});
 
 	test("models and commands: resent on agent_settled only if different", () => {

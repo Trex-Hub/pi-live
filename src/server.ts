@@ -248,7 +248,7 @@ export class LiveServer {
 			client.info = { connId: `c${this.nextConnId++}`, name };
 			const features: Feature[] = [];
 			if (this.handler.chatSnapshot) features.push("chat");
-			if (this.control) features.push("control");
+			if (this.control) features.push("control", "images");
 			client.chat = msg.chat === true && this.handler.chatSnapshot !== undefined;
 			const sessionName = this.handler.sessionName?.();
 			// Snapshot and write in the same tick, so no change falls in between.
